@@ -1,0 +1,32 @@
+# Postgres + S3-compatible object storage for local dev.
+# MinIO images are no longer pullable from Docker Hub/quay, so SeaweedFS provides the S3 API (SOT D9).
+# Host ports avoid the common 5432/5433/8333 to coexist with other local stacks.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: nexus-postgres
+    environment:
+      POSTGRES_USER: nexus
+      POSTGRES_PASSWORD: nexus
+      POSTGRES_DB: nexus
+    ports:
+      - "5434:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexus"]
+      interval: 5s
+      retries: 10
+
+  s3:
+    image: chrislusf/seaweedfs:latest
+    container_name: nexus-s3
+    command: server -ip.bind=0.0.0.0 -dir=/data -s3 -s3.port=8333 -volume.max=0
+    ports:
+      - "8334:8333"
+    volumes:
+      - s3data:/data
+
+volumes:
+  pgdata:
+  s3data:

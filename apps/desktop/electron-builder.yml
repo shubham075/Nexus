@@ -1,0 +1,27 @@
+appId: com.nexus.desktop
+productName: Nexus
+copyright: Copyright © 2026 Nexus
+directories:
+  buildResources: build
+  output: release
+# The renderer, preload and main are fully bundled by electron-vite, so no node_modules ship.
+files:
+  - out/**
+  - package.json
+npmRebuild: false
+asar: true
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.ico
+  artifactName: Nexus-Setup-${version}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Nexus
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico

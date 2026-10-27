@@ -1,0 +1,41 @@
+{
+  "name": "@nexus/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Nexus — internal professional network",
+  "main": "./out/main/index.js",
+  "author": "Nexus",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "build:win": "electron-vite build && electron-builder --win",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@dagrejs/dagre": "1.1.4",
+    "@nexus/shared": "workspace:*",
+    "@tanstack/react-query": "5.60.5",
+    "@types/node": "22.9.0",
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1",
+    "@vitejs/plugin-react": "4.3.3",
+    "@xyflow/react": "12.3.5",
+    "autoprefixer": "10.4.20",
+    "date-fns": "4.1.0",
+    "electron": "33.2.0",
+    "electron-builder": "25.1.8",
+    "electron-vite": "2.3.0",
+    "lucide-react": "0.456.0",
+    "postcss": "8.4.49",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-router-dom": "6.28.0",
+    "socket.io-client": "4.8.1",
+    "tailwindcss": "3.4.15",
+    "typescript": "5.6.3",
+    "vite": "5.4.11",
+    "zustand": "5.0.1"
+  }
+}

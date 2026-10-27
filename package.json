@@ -1,0 +1,17 @@
+{
+  "name": "nexus",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @nexus/server --filter @nexus/desktop dev",
+    "dev:server": "pnpm --filter @nexus/server dev",
+    "dev:desktop": "pnpm --filter @nexus/desktop dev",
+    "db:migrate": "pnpm --filter @nexus/server db:migrate",
+    "db:seed": "pnpm --filter @nexus/server db:seed",
+    "db:reset": "pnpm --filter @nexus/server db:reset",
+    "test": "pnpm --filter @nexus/server test",
+    "typecheck": "pnpm -r typecheck",
+    "build:win": "pnpm --filter @nexus/desktop build:win"
+  },
+  "engines": { "node": ">=20" }
+}
