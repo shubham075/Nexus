@@ -281,3 +281,15 @@ Polish: neutral cover/graph/accents, muted avatar palette, compact admin row act
 Verified: desktop + server typecheck clean; 7/7 DAG/RBAC unit tests; 45-step API e2e script (jobs, events, articles, polls, reposts, reactions, scoped moderation, reports, connections, invites, hierarchy edges/cycles/last-parent, grants/revoke, group chat, search, analytics, audit) all pass on a fresh seed.
 
 Not yet covered: multi-user realtime in two live Electron windows, file upload via the UI picker, Windows installer build.
+
+---
+
+## 13. Windows installer
+
+```bash
+pnpm build:win        # → apps/desktop/release/Nexus-Setup-<version>.exe (NSIS, x64, unsigned)
+```
+- **Point installs at your server**: put `nexus.config.json` next to `Nexus.exe` (IT-wide) or in `%APPDATA%\Nexus` (per user): `{ "apiUrl": "https://nexus.yourcompany.internal" }`. Falls back to `NEXUS_API_URL`, then `http://localhost:4000`.
+- **Unsigned**: Windows SmartScreen shows "unknown publisher" until a code-signing certificate is added (`CSC_LINK` / `CSC_KEY_PASSWORD`).
+- **First build on a machine without symlink rights** fails extracting electron-builder's `winCodeSign` (macOS symlinks). Fix once: enable Windows Developer Mode, or extract `%LOCALAPPDATA%\electron-builder\Cache\winCodeSign\*.7z` into `winCodeSign-2.6.0` in the same folder (the two symlink errors are harmless).
+- Auto-update is not wired yet (phase 1c: `electron-updater` + an internal update feed).
