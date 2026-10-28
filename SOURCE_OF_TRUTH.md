@@ -283,7 +283,8 @@ The renderer also runs in a normal browser at http://localhost:5183 (web bridge 
 | 1b ✅ built (needs QA) | Groups, events, articles/newsletters, jobs, search, moderation queue, analytics |
 | 1c ✅ built | Realtime/upload QA, API e2e + UI tests, CI, OIDC SSO (Azure AD / Google), refresh tokens, rate limiting, password policy, full-text search, Redis, auto-update + signing readiness, production deployment, signed media URLs, retention purge, data export. Open: code-signing certificate, live SSO round trip, retention defaults (P1) |
 | 2a ✅ built | Tenancy core (§14.4): organizations, `orgId` on company tables + backfill migration, per-org RBAC/DAG caches, request org context, `TENANCY` flag, org switcher (multi only) |
-| 2b–2e (public) | Public sign-up, companies and domain claiming, post visibility levels (public/connections/nodes), public surface, premium, recommendations ML, web + mobile clients (§14.4) |
+| 2b ✅ built | Public sign-up + email verification, password reset by email, company creation, DNS TXT domain verification, join policies + invites, company pages + follow, platform admin console (§14.4) |
+| 2c–2e (public) | Post visibility levels (public/connections/nodes), public surface, premium, recommendations ML, web + mobile clients (§14.4) |
 
 ---
 
@@ -296,6 +297,16 @@ The renderer also runs in a normal browser at http://localhost:5183 (web bridge 
 ---
 
 ## 12. QA log
+
+### 2026-10-29 — phase 2b: accounts & companies
+Built per §14 (D22) and verified on the dev stack in **both** modes (`pnpm typecheck`, `pnpm test` 46/46, `pnpm test:e2e`: multi 27 pass + 1 skipped, single 25 pass + 3 skipped, rate limits on):
+1. **Accounts:** `POST /auth/signup` (multi only, else 403 `SIGNUP_DISABLED`; same answer for existing addresses), `/auth/verify-email` (signs in), `/auth/resend-verification`, `/auth/forgot-password` (same answer for unknown addresses), `/auth/reset-password` (both modes; clears `mustChangePassword`, marks the email verified, revokes every session), `GET /auth/config`. Login of an unverified account → 403 `EMAIL_NOT_VERIFIED` (checked after the password). `User.emailVerifiedAt` defaults to now, so admin-created, seeded and pre-2b accounts count as verified. `EmailToken`: SHA-256 hash only, single use (conditional update), a new mail retires older links, verify 24 h / reset 30 min; links are `APP_URL/#/verify-email?token=…` etc. and every token endpoint also accepts the pasted link.
+2. **Companies** (`/companies`, multi only → 404 in single): create (root COMPANY unit, system roles, Employee on the root, creator org admin + Super Admin), directory + `/mine`, page (followers, members, my status, `canJoin`), PATCH profile/logo/cover/join policy (company admin = `admin.all` in that org), follow/unfollow. Domains: `OrgDomain` unique per org; only one org can hold a **verified** domain (checked on add and verify); TXT `nexus-verification=<token>` on the domain itself, resolver injectable (`lib/domains.ts`), `DNS_STUB=true` (ignored in production) swaps in an in-memory table set via `PUT /api/v1/dev/dns/:domain`. Join: email domain must be verified for that org; AUTO → member in the root unit, APPROVAL → PENDING until an admin approves/rejects; INVITE (or other domains) → emailed invite, 7 days, only for the invited address, single use.
+3. **Platform admin** (`/platform`, multi only, `User.isSuperAdmin`): list/search orgs and users, suspend/restore. A suspended org is invisible (404 page) and its members get 403 `ORG_SUSPENDED` with that `X-Org-Id` (it drops out of `orgs`); a suspended user is `isActive=false` and signed out.
+4. **Desktop:** sign-in screen adds "Forgot password?" in both modes and "Create an account" in multi; verify/reset screens open from the mailed link on web and take a pasted link on desktop. Multi mode only: org switcher shows "Join or create a company" when you have none, Companies page (directory, create, my companies, accept invite), company page, company settings (profile, logo/cover, join policy, domains with the TXT record, requests, invites), Platform admin (Me menu). Clicked through on the web build in multi (sign-up → mail → verify → create company → add domain → TXT shown, verify error) and checked the single-mode sign-in screen.
+
+Known limits: a user with no company still sees the global feed and gets 403 on company-scoped pages (2c); join requests don't notify admins yet; desktop users paste email links (no `nexus://` deep link).
+
 
 ### 2026-10-29 — phase 2a: tenancy core
 Built per §14 (D20–D23) and verified on the dev stack in `TENANCY=single`:
@@ -456,7 +467,7 @@ pnpm build:win:azure  # same, signed with Azure Trusted Signing (electron-builde
 | Sub-phase | Scope | Done when |
 |-----------|-------|-----------|
 | **2a: tenancy core** ✅ | Organization/OrgMember/OrgDomain models; `orgId` on company tables + migration moving existing data into one org; org-scoped RBAC + DAG caches; request org context; `TENANCY` flag; org switcher in the UI (multi only) | All existing tests pass in single mode; new tests prove no cross-org reads/writes |
-| **2b: accounts & companies** | Public sign-up, email verification, password reset by email (SMTP), company creation, domain verification, join policies, company pages + follow, platform admin console | A new user can sign up, verify, create/claim a company, invite colleagues |
+| **2b: accounts & companies** ✅ | Public sign-up, email verification, password reset by email (SMTP), company creation, domain verification, join policies, company pages + follow, platform admin console | A new user can sign up, verify, create/claim a company, invite colleagues |
 | **2c: visibility & feed** | Post visibility (public/connections/org/units), visibility-aware feed, search, notifications and media access | Visibility matrix tests pass |
 | **2d: public surface** | Public jobs on company pages, public groups/events, web client deployment (renderer in browser), basic abuse controls (sign-up rate limits, report users, block) | Web client deployed alongside desktop |
 | **2e: later** | Recommendations, premium, macOS/Linux builds, mobile clients | — |

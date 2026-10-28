@@ -22,6 +22,8 @@ Internal LinkedIn-style desktop app (Electron + React) with a Fastify/Prisma API
 - UI colours: use `zinc-*`, `bg-surface`, `brand-*` tokens (CSS variables in `index.css`) so light and dark both work. Keep the look minimal and neutral.
 - React effects must use block bodies (`useEffect(() => { … })`): newer Chromium returns Promises from DOM methods like `scrollIntoView`, which crashes an expression-bodied effect.
 - Mentions are stored as `@[Name](userId)`; `MentionInput` shows `@Name`.
+- Email links (verify, reset, invite) go through `lib/emailTokens.ts` (hashed, single use, `APP_URL/#/<route>?token=`); endpoints accept the pasted link or token. Multi-only route plugins (`/companies`, `/platform`) 404 in single mode via an `onRequest` hook.
+- e2e runs `e2e/*.e2e.ts` against a live API; multi-mode tests need `TENANCY=multi` and `DNS_STUB=true` on the server and read mail from Mailpit (:8026).
 
 ## Gotchas (Windows)
 - Use `127.0.0.1`, not `localhost`, in server env URLs (IPv6-first lookup adds ~200 ms).
