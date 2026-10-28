@@ -406,3 +406,37 @@ pnpm build:win:azure  # same, signed with Azure Trusted Signing (electron-builde
 - **Azure Trusted Signing**: fill `endpoint`, `codeSigningAccountName`, `certificateProfileName` and `win.publisherName` (the certificate's subject CN) in `apps/desktop/electron-builder.azure.yml`, set `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` (Entra app with the *Trusted Signing Certificate Profile Signer* role), run `pnpm build:win:azure`. Needs PowerShell + the `TrustedSigning` module (electron-builder installs it).
 - **CI**: store the PFX as a base64 secret → `CSC_LINK`, password → `CSC_KEY_PASSWORD` (or the three `AZURE_*` secrets); upload `release/latest.yml`, `*.exe`, `*.blockmap` as artifacts, then copy them to the feed. Never commit certificates.
 - **How unsigned builds behave**: SmartScreen shows "unknown publisher" on first install; updates still work because `app-update.yml` has no `publisherName`, so `electron-updater` skips the signature check (integrity is only the sha512 in `latest.yml`, so serve the feed over HTTPS). Once a build is signed, its `app-update.yml` records the publisher and that install **rejects any later update that is unsigned or signed by another publisher**. So: switching unsigned → signed is a normal update; never go back to unsigned, and keep the same certificate subject when renewing.
+
+---
+
+## 14. Phase 2: public release (spec, decided 2026-10-29)
+
+### 14.1 Decisions
+| # | Topic | Decision |
+|---|-------|----------|
+| D20 | Product model | **One global network** (LinkedIn-style): one personal account per person; connections, follows, messaging and public posts work across companies; each company has a **company page**. A company's hierarchy, roles, internal posts, internal groups/events/jobs and audit log stay **private to that company** |
+| D21 | Tenancy | **Shared PostgreSQL, `orgId` on every company-scoped row**, enforced in one data-access layer (org-scoped Prisma helpers + RBAC), never in ad-hoc route code |
+| D22 | Joining | **Open sign-up with email verification.** A company admin **claims a company by verifying its email domain** (DNS TXT record or a mail to a role address). People with a verified email on a claimed domain can join that company (auto or with admin approval, per company setting); others are invited |
+| D23 | Deployment modes | **`TENANCY=single`** (today's internal deployment: one org, no public sign-up, everything company-internal) and **`TENANCY=multi`** (public SaaS), same codebase. The existing database becomes the first organization on migration |
+
+### 14.2 Data model changes
+- **New:** `Organization` (slug, name, logo, cover, about, website, industry, size, `joinPolicy` AUTO|APPROVAL|INVITE), `OrgDomain` (domain, verification token, verifiedAt), `OrgMember` (orgId, userId, status ACTIVE|PENDING|LEFT, joinedAt, `isOrgAdmin` shortcut), `CompanyFollow`, `EmailVerification`.
+- **`orgId` added to company-scoped tables:** `OrgNode` (and through it `OrgEdge`, `Membership`, `RoleGrant`), `Role` (role names unique per org), `AuditLog`, `Report` (the org whose moderators review it), `Group`/`Event`/`Job`/`Newsletter` (nullable = public/personal).
+- **Global (no `orgId`):** `User`, profile tables, `Connection`, `Follow`, `Conversation`/`Message`, `Notification`, `Hashtag`, `AuthSession`.
+- **Post visibility:** `Post.visibility` PUBLIC | CONNECTIONS | ORG; `Post.orgId` for ORG posts; optional `PostAudienceNode` (target units, inherited down the DAG). Comments/reactions follow the post's visibility.
+- **Platform vs company admin:** `User.isSuperAdmin` becomes **platform admin** (multi mode). Company permissions (`admin.all`, `hierarchy.manage`, …) apply **within one org** via that org's grants.
+
+### 14.3 Rules
+- **RBAC becomes org-scoped:** `can(userId, orgId, perm, targetNodes?)`; DAG and grant caches are per org. Cross-org access is impossible by construction: every company-scoped query takes an `orgId` from the request context (`X-Org-Id` header / active org), validated against `OrgMember`.
+- **Feed (multi mode):** public posts from connections/follows/followed companies + CONNECTIONS posts from connections + ORG posts from my active org (filtered by unit audience).
+- **Search:** public profiles/posts/companies/public jobs globally; company-private results only inside the active org.
+- **Single mode** keeps today's UX: visibility defaults to ORG, no public sign-up, no company pages UI, no org switcher.
+
+### 14.4 Sub-phases
+| Sub-phase | Scope | Done when |
+|-----------|-------|-----------|
+| **2a: tenancy core** | Organization/OrgMember/OrgDomain models; `orgId` on company tables + migration moving existing data into one org; org-scoped RBAC + DAG caches; request org context; `TENANCY` flag; org switcher in the UI (multi only) | All existing tests pass in single mode; new tests prove no cross-org reads/writes |
+| **2b: accounts & companies** | Public sign-up, email verification, password reset by email (SMTP), company creation, domain verification, join policies, company pages + follow, platform admin console | A new user can sign up, verify, create/claim a company, invite colleagues |
+| **2c: visibility & feed** | Post visibility (public/connections/org/units), visibility-aware feed, search, notifications and media access | Visibility matrix tests pass |
+| **2d: public surface** | Public jobs on company pages, public groups/events, web client deployment (renderer in browser), basic abuse controls (sign-up rate limits, report users, block) | Web client deployed alongside desktop |
+| **2e: later** | Recommendations, premium, macOS/Linux builds, mobile clients | — |
