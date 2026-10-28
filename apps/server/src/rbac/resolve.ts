@@ -31,6 +31,19 @@ export function resolveCan(dag: Dag, subject: Subject, grants: Grant[], perm: st
   return withPerm.some((g) => targetScope.has(g.nodeId));
 }
 
+/**
+ * Where a permission reaches: 'ALL' (super admin, admin.all, or granted on a root unit) or the set of
+ * units covered by the grants' sub-DAGs. Empty set = no access. Used for scoped views like manager analytics.
+ */
+export function resolveScope(dag: Dag, subject: Subject, grants: Grant[], perm: string): 'ALL' | Set<string> {
+  if (subject.isSuperAdmin) return 'ALL';
+  const mine = applicableGrants(dag, subject, grants);
+  if (mine.some((g) => g.permissions.includes('admin.all'))) return 'ALL';
+  const nodes = mine.filter((g) => g.permissions.includes(perm)).map((g) => g.nodeId);
+  if (nodes.some((n) => dag.has(n) && dag.parentsOf(n).length === 0)) return 'ALL';
+  return dag.descendantsOrSelf(nodes);
+}
+
 export function effectivePermissions(dag: Dag, subject: Subject, grants: Grant[]): string[] {
   if (subject.isSuperAdmin) return ['admin.all'];
   return [...new Set(applicableGrants(dag, subject, grants).flatMap((g) => g.permissions))].sort();

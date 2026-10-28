@@ -28,13 +28,16 @@ Last updated: 2026-10-28
 | D13 | Product name | **Nexus** (placeholder; single constant `APP_NAME` in `packages/shared`) |
 | D14 | Membership | Employee may belong to **multiple hierarchy nodes** |
 | D15 | RBAC model | **Fixed permission catalog + admin-defined custom roles** |
+| D17 | Retention (confirms P1, 2026-10-29) | Proposed defaults confirmed, **except messages now expire after 2 years** (`RETENTION_MESSAGE_DAYS=730`). No legal-hold feature for now |
+| D18 | Manager analytics (2026-10-29) | `analytics.view` is **scoped by the DAG**: granted on a unit, it shows stats for that unit's sub-DAG only; on the root (or `admin.all`) it is company-wide. The system *Manager* role includes it. The audit log stays company-wide-only |
+| D19 | HRIS sync (2026-10-29) | **Not now**: admins maintain the hierarchy by hand |
 | D16 | Visual design | **Minimal, premium, neutral palette with light / dark / system theme** — colors are CSS-variable tokens (`index.css`), toggle in the *Me* menu |
 
 Proposed, awaiting product-owner confirmation (built with these defaults, all configurable by env):
 
 | # | Topic | Proposal |
 |---|-------|----------|
-| P1 | Retention (§11) | Moderator-hidden posts/comments purged **30 days** after hiding; **read** notifications after **90 days**, all notifications after **365 days**; **messages kept forever** (proposal: 2 years once confirmed); audit log kept forever. Daily purge job in the API process. Files of purged posts/messages are deleted when nothing else references them |
+| P1 | Retention (§11) | Moderator-hidden posts/comments purged **30 days** after hiding; **read** notifications after **90 days**, all notifications after **365 days**; messages after **2 years** (confirmed, D17); audit log kept forever. Daily purge job in the API process. Files of purged posts/messages are deleted when nothing else references them |
 | P2 | Data export (§8) | Every employee can download their own data as JSON; admins with `users.manage` can export any employee. Each export is audited (`user.export`) |
 
 Engineering choices (made by the build, can be revisited):
@@ -283,9 +286,10 @@ The renderer also runs in a normal browser at http://localhost:5183 (web bridge 
 ---
 
 ## 11. Open questions
-- Retention policy for messages and deleted content? **Proposed defaults built (P1 in §1); please confirm**, especially whether messages should expire (e.g. after 2 years) and whether hidden content should be kept longer for HR/legal holds.
-- Should managers see reportees' analytics?
-- Integration with HRIS (auto-sync hierarchy from HR system)?
+- ~~Retention policy~~: answered (D17).
+- ~~Should managers see reportees' analytics?~~: yes, scoped to their units (D18).
+- ~~Integration with HRIS?~~: not now (D19).
+- Phase 2 design questions are answered in §14 (D20–D23).
 
 ---
 

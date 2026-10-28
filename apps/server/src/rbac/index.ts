@@ -1,7 +1,7 @@
 import type { Permission } from '@nexus/shared';
 import { prisma } from '../lib/db';
 import { getDag } from '../dag/cache';
-import { resolveCan, effectivePermissions, type Grant, type Subject } from './resolve';
+import { resolveCan, resolveScope, effectivePermissions, type Grant, type Subject } from './resolve';
 
 let grantsCache: Promise<Grant[]> | null = null;
 
@@ -42,6 +42,12 @@ export async function can(userId: string, perm: Permission, targetNodes?: string
 /** Moderation-style check against the author of a piece of content. */
 export async function canOverUser(actorId: string, perm: Permission, targetUserId: string): Promise<boolean> {
   return can(actorId, perm, await memberNodesOf(targetUserId));
+}
+
+/** Units a permission covers for this user ('ALL' = company-wide). See resolveScope. */
+export async function permissionScope(userId: string, perm: Permission): Promise<'ALL' | Set<string>> {
+  const [dag, grants, subject] = await Promise.all([getDag(), allGrants(), subjectFor(userId)]);
+  return resolveScope(dag, subject, grants, perm);
 }
 
 export async function permissionsOf(userId: string): Promise<string[]> {

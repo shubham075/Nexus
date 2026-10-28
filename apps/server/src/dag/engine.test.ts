@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Dag, DagError } from './engine';
-import { resolveCan, type Grant } from '../rbac/resolve';
+import { resolveCan, resolveScope, type Grant } from '../rbac/resolve';
 
 // Company → Eng, Product ; Eng → Backend, Mobile ; Product → Mobile (matrix)
 const org = () =>
@@ -63,4 +63,18 @@ test('RBAC: node grants inherit down, scope is the granted sub-DAG', () => {
   assert.equal(resolveCan(d, mod, grants, 'post.moderate', ['mobile']), true);
   assert.equal(resolveCan(d, mod, grants, 'post.moderate', ['sales']), false);
   assert.equal(resolveCan(d, { isSuperAdmin: true, memberNodes: [], userId: 'x' }, [], 'roles.manage'), true);
+});
+
+test('RBAC scope: unit grant covers its sub-DAG, root grant or admin is ALL', () => {
+  const d = org();
+  const grants: Grant[] = [
+    { nodeId: 'eng', userId: 'mgr', permissions: ['analytics.view'] },
+    { nodeId: 'co', userId: 'hr', permissions: ['analytics.view'] },
+  ];
+  const mgr = resolveScope(d, { userId: 'mgr', isSuperAdmin: false, memberNodes: ['eng'] }, grants, 'analytics.view');
+  assert.ok(mgr !== 'ALL');
+  assert.deepEqual([...mgr].sort(), ['backend', 'eng', 'mobile']);
+  assert.equal(resolveScope(d, { userId: 'hr', isSuperAdmin: false, memberNodes: ['sales'] }, grants, 'analytics.view'), 'ALL');
+  const none = resolveScope(d, { userId: 'x', isSuperAdmin: false, memberNodes: ['sales'] }, grants, 'analytics.view');
+  assert.ok(none !== 'ALL' && none.size === 0);
 });

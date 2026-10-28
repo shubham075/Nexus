@@ -257,6 +257,18 @@ test('analytics and audit: HR can view, employees cannot', async () => {
   await fails(403, 'GET', '/admin/audit', 'rahul');
 });
 
+test('analytics: a manager sees only their units, and no audit log (SOT D18)', async () => {
+  const all = await ok('GET', '/admin/analytics', 'divya');
+  assert.equal(all.scope.all, true);
+  const mine = await ok('GET', '/admin/analytics', 'priya'); // Manager granted on Engineering
+  assert.equal(mine.scope.all, false);
+  const names = mine.scope.units.map((u: { name: string }) => u.name);
+  assert.ok(names.includes('Engineering') && names.includes('Mobile Squad'), 'Engineering sub-DAG incl. the matrix team');
+  assert.ok(!names.includes('Sales'));
+  assert.ok(mine.users > 0 && mine.users < all.users, 'scoped head-count is a subset');
+  await fails(403, 'GET', '/admin/audit', 'priya');
+});
+
 test('media: allowed uploads are served back, other types rejected', async () => {
   // 1×1 transparent PNG
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');

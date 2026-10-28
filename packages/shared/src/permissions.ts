@@ -38,7 +38,7 @@ export const SYSTEM_ROLES: { name: string; description: string; permissions: Per
     description: 'Manages people, hierarchy and roles',
     permissions: ['hierarchy.manage', 'roles.manage', 'users.manage', 'analytics.view', 'post.pin', 'event.create', 'job.create', 'job.manage'],
   },
-  { name: 'Manager', description: 'Leads a unit', permissions: ['event.create', 'job.create', 'article.publish', 'group.create'] },
+  { name: 'Manager', description: 'Leads a unit', permissions: ['event.create', 'job.create', 'article.publish', 'group.create', 'analytics.view'] },
   { name: 'Moderator', description: 'Keeps the community healthy', permissions: ['post.moderate', 'group.moderate', 'report.review'] },
   { name: 'Recruiter', description: 'Internal mobility', permissions: ['job.create', 'job.manage'] },
   {

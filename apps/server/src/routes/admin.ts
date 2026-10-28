@@ -8,7 +8,7 @@ import { badRequest, forbidden, notFound, page, pageArgs, parse } from '../lib/h
 import { authenticate, requirePerm, uid } from '../lib/auth';
 import { audit, userLite } from '../lib/notify';
 import { revokeUserSessions } from '../lib/sessions';
-import { can, invalidateRbac, permissionsOf } from '../rbac';
+import { can, invalidateRbac, permissionScope, permissionsOf } from '../rbac';
 import { env } from '../lib/env';
 import { exportFileName, exportUser } from '../lib/export';
 import { lastPurge } from '../lib/retention';
@@ -184,30 +184,55 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
 
   // ───────── Audit & analytics ─────────
   app.get<{ Querystring: { cursor?: string; limit?: string } }>('/audit', { preHandler: requirePerm('analytics.view') }, async (req) => {
+    // The audit log is company-wide; managers with unit-scoped analytics do not get it.
+    if ((await permissionScope(uid(req), 'analytics.view')) !== 'ALL') throw forbidden('The audit log is available to company-wide admins only');
     const { limit, ...args } = pageArgs(req.query, 50);
     const rows = await prisma.auditLog.findMany({ ...args, orderBy: { createdAt: 'desc' }, include: { actor: { select: userLite } } });
     return page(rows, limit);
   });
 
-  app.get('/analytics', { preHandler: requirePerm('analytics.view') }, async () => {
+  /** Company-wide for admins; managers granted analytics.view on a unit see only that unit's sub-DAG (SOT D18). */
+  app.get('/analytics', { preHandler: requirePerm('analytics.view') }, async (req) => {
+    const scope = await permissionScope(uid(req), 'analytics.view');
+    const scoped = scope !== 'ALL';
+    const units = scoped ? await prisma.orgNode.findMany({ where: { id: { in: [...scope] } }, select: { id: true, name: true }, orderBy: { name: 'asc' } }) : [];
+    const ids = scoped
+      ? [...new Set((await prisma.membership.findMany({ where: { nodeId: { in: [...scope] } }, select: { userId: true } })).map((m) => m.userId))]
+      : null;
+    // Each metric counts activity by people inside the scope.
+    const byUser = ids ? { id: { in: ids } } : {};
+    const byAuthor = ids ? { authorId: { in: ids } } : {};
+    const byActor = ids ? { userId: { in: ids } } : {};
     const dayAgo = new Date(Date.now() - 864e5);
     const weekAgo = new Date(Date.now() - 7 * 864e5);
+    const since = new Date(Date.now() - 14 * 864e5);
     const [users, activeDay, activeWeek, posts, postsWeek, comments, reactions, openReports, topTags, perDay] = await Promise.all([
-      prisma.user.count({ where: { isActive: true } }),
-      prisma.user.count({ where: { lastSeenAt: { gte: dayAgo } } }),
-      prisma.user.count({ where: { lastSeenAt: { gte: weekAgo } } }),
-      prisma.post.count(),
-      prisma.post.count({ where: { createdAt: { gte: weekAgo } } }),
-      prisma.comment.count(),
-      prisma.reaction.count(),
-      prisma.report.count({ where: { status: 'OPEN' } }),
-      prisma.hashtag.findMany({ take: 10, orderBy: { posts: { _count: 'desc' } }, select: { tag: true, _count: { select: { posts: true } } } }),
-      prisma.$queryRaw<{ day: Date; count: bigint }[]>`
-        SELECT date_trunc('day', "createdAt") AS day, count(*) AS count
-        FROM "Post" WHERE "createdAt" >= ${new Date(Date.now() - 14 * 864e5)}
-        GROUP BY 1 ORDER BY 1`,
+      prisma.user.count({ where: { isActive: true, ...byUser } }),
+      prisma.user.count({ where: { lastSeenAt: { gte: dayAgo }, ...byUser } }),
+      prisma.user.count({ where: { lastSeenAt: { gte: weekAgo }, ...byUser } }),
+      prisma.post.count({ where: byAuthor }),
+      prisma.post.count({ where: { createdAt: { gte: weekAgo }, ...byAuthor } }),
+      prisma.comment.count({ where: byAuthor }),
+      prisma.reaction.count({ where: byActor }),
+      prisma.report.count({ where: { status: 'OPEN', ...(ids ? { OR: [{ post: byAuthor }, { comment: byAuthor }, { targetUserId: { in: ids } }] } : {}) } }),
+      prisma.hashtag.findMany({
+        take: 10,
+        where: ids ? { posts: { some: { post: byAuthor } } } : undefined,
+        orderBy: { posts: { _count: 'desc' } },
+        select: { tag: true, _count: { select: { posts: ids ? { where: { post: byAuthor } } : true } } },
+      }),
+      ids
+        ? prisma.$queryRaw<{ day: Date; count: bigint }[]>`
+            SELECT date_trunc('day', "createdAt") AS day, count(*) AS count
+            FROM "Post" WHERE "createdAt" >= ${since} AND "authorId" = ANY(${ids})
+            GROUP BY 1 ORDER BY 1`
+        : prisma.$queryRaw<{ day: Date; count: bigint }[]>`
+            SELECT date_trunc('day', "createdAt") AS day, count(*) AS count
+            FROM "Post" WHERE "createdAt" >= ${since}
+            GROUP BY 1 ORDER BY 1`,
     ]);
     return {
+      scope: { all: !scoped, units },
       users, activeDay, activeWeek, posts, postsWeek, comments, reactions, openReports,
       topHashtags: topTags.map((t) => ({ tag: t.tag, count: t._count.posts })),
       // every one of the last 14 days, zero-filled, so the chart reads as a trend

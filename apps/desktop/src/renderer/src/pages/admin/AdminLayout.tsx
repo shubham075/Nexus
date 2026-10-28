@@ -11,7 +11,7 @@ export default function AdminLayout() {
     { to: 'users', label: 'Employees', icon: <Users size={18} />, show: has('users.manage') },
     { to: 'reports', label: 'Moderation queue', icon: <Flag size={18} />, show: has('report.review') },
     { to: 'analytics', label: 'Analytics', icon: <BarChart3 size={18} />, show: has('analytics.view') },
-    { to: 'audit', label: 'Audit log', icon: <ScrollText size={18} />, show: has('analytics.view') },
+    { to: 'audit', label: 'Audit log', icon: <ScrollText size={18} />, show: has('analytics.view') && has('users.manage', 'roles.manage') },
   ];
   return (
     <div className="grid h-full grid-cols-[220px_minmax(0,1fr)]">

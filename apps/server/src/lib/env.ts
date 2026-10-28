@@ -27,7 +27,7 @@ export const env = {
   /** Retention in days (SOT §11 proposal); 0 keeps forever. */
   retention: {
     hiddenContentDays: int('RETENTION_HIDDEN_CONTENT_DAYS', 30),
-    messageDays: int('RETENTION_MESSAGE_DAYS', 0),
+    messageDays: int('RETENTION_MESSAGE_DAYS', 730),
     readNotificationDays: int('RETENTION_READ_NOTIFICATION_DAYS', 90),
     notificationDays: int('RETENTION_NOTIFICATION_DAYS', 365),
     auditLogDays: int('RETENTION_AUDIT_LOG_DAYS', 0),

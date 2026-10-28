@@ -18,7 +18,10 @@ export default function AdminAnalytics() {
   const max = Math.max(1, ...d.postsPerDay.map((p: any) => p.count));
   return (
     <div className="space-y-4 p-6">
-      <h1 className="text-xl font-semibold">Analytics</h1>
+      <div>
+        <h1 className="text-xl font-semibold">Analytics</h1>
+        <p className="text-sm text-zinc-500">{d.scope?.all ? 'Whole company' : `Your units: ${d.scope?.units.map((u: any) => u.name).join(', ')}`}</p>
+      </div>
       <div className="grid grid-cols-4 gap-3">
         <Stat label="Active employees" value={d.users} />
         <Stat label="Active today" value={d.activeDay} sub={`${d.activeWeek} this week`} />
