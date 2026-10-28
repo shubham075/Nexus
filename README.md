@@ -305,11 +305,14 @@ Legend: ✅ done · 🟡 partly done · ⬜ not started
 - ⬜ Native Windows notifications and taskbar badge, group chat in the UI and video upload have not been QA'd in a packaged build
 - 🟡 Local installer builds can fail on locked-down laptops (endpoint security kills the NSIS step, SOT §13); use the CI artifact
 
-### Phase 2: public release ⬜ (next)
-- ⬜ Multi-tenancy (one org per tenant), public sign-up and company pages
-- ⬜ Post visibility levels (public / connections / selected units)
-- ⬜ Web client (the renderer already runs in a browser) and mobile clients
-- ⬜ Recommendations (feed ranking, PYMK), premium features, macOS/Linux builds
+### Phase 2: public release ⬜ (spec ready: SOT §14, decisions D20–D23)
+- ⬜ **2a: tenancy core**: Organization / OrgMember / OrgDomain, `orgId` on company tables (existing data → first org), org-scoped RBAC and DAG caches, `TENANCY=single|multi`, org switcher
+- ⬜ **2b: accounts & companies**: public sign-up + email verification, password reset by email, company creation, domain verification, join policies, company pages + follow, platform admin
+- ⬜ **2c: visibility & feed**: post visibility (public / connections / company / units), visibility-aware feed, search, notifications and media
+- ⬜ **2d: public surface**: public jobs on company pages, public groups/events, web client deployment, abuse controls
+- ⬜ **2e: later**: recommendations, premium, macOS/Linux builds, mobile clients
+
+Phase-1 product decisions are settled (D17–D19, 2026-10-29): messages expire after 2 years; managers see analytics for their own units; no HRIS sync for now.
 
 Open product questions are listed in `SOURCE_OF_TRUTH.md` §11.
 
