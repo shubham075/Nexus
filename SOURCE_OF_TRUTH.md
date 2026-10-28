@@ -399,6 +399,22 @@ Verified on merged `master`: typecheck clean; `pnpm test` 31/31 (incl. auth rout
 
 ---
 
+### 2026-10-29: QA of untested areas, branch `claude/qa-untested-7c8934`
+Isolated setup: database `nexus_qa`, API on :4001, `TENANCY=multi`; `admin@nexus.local` added to the seed's `globex` org (`OrgMember` row only).
+
+1. **Org switcher (multi mode, web build): pass.** The `TopNav` switcher lists Nexus Corp and Globex Inc. Switching reloads on `#/`; the org chart, admin hierarchy, jobs and events then show Globex data only, the Admin link disappears (no grants there) and the server answers 403 on `/admin/audit` and `/admin/analytics` (`/admin/hierarchy` opened by URL is read-only, controls hidden by `useCan`). A bogus remembered org and a membership deleted while that org was active both fall back to the default org and clear `nexus.activeOrg`; signing out clears it too. By design until 2c: general posts and People You May Know are not org-scoped, so Nexus posts still show in the Globex feed.
+2. **Web client against a live API: pass.** `pnpm build:web` + `config.json` → `http://127.0.0.1:4001`, served by `vite preview`: sign-in, feed, post with an image (signed media URL loads), new group conversation, sending, and another user's message arriving over Socket.IO without reload. No CORS errors in the console (CORS preflights 204). CSP was not exercised here (`vite preview` sends none; the `deploy/web` CSP was checked in the entry above).
+3. **Packaged build (`electron-builder --win --dir`, `nexus.config.json` next to `Nexus.exe`): pass after two fixes.** WebM video upload in the composer → the post's video plays (`readyState` 4, time advancing). Group chat UI shows history and sends. Native notifications: with the window minimized, a group message and an @mention sent through the API each created an Electron `Notification` that emitted `show`.
+   Fixed:
+   - **No taskbar badge on Windows:** `app.setBadgeCount` is macOS/Linux only, so Windows only got the `(n) Nexus` title. The preload now draws a red count badge (canvas) and main shows it with `win.setOverlayIcon` (cleared at 0). Checked: overlay set with "2 unread", then "1 unread".
+   - **Messages marked "seen" while the window was minimized:** an open thread called `/read` on every new message regardless of focus, so the sender saw "Seen", unread stayed 0 and the badge missed it. `Messaging.tsx` now marks read only when `document.hasFocus()`, and again on window `focus`. Checked: minimized → unread 2; restore + focus → read.
+
+   Not covered: the overlay icon and toasts by eye (the taskbar was auto-hidden during the run), clicking a toast to open the thread, and an NSIS-installed build (Start Menu shortcut / AUMID). `pnpm test:ui` not run: it is pinned to :4000/:5183, used by the phase 2b session. Its "Seen" step relies on Playwright's focus emulation, which reports `hasFocus()` true for every page (checked).
+
+Verified: `pnpm typecheck` clean; `pnpm test` 43/43.
+
+---
+
 ## 13. Windows installer
 
 ```bash

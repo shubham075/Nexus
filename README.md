@@ -312,7 +312,7 @@ Legend: ✅ done · 🟡 partly done · ⬜ not started
 - ⬜ **Product owner**: confirm retention defaults (SOT §1 P1) and data-export scope (P2); answer SOT §11 questions
 - ⬜ **End-to-end auto-update test**: install a CI-built v0.1.0, publish v0.1.1 to the feed, check the banner and restart
 - ⬜ **Production server**: provision the Docker host, DNS and TLS, then follow [`deploy/README.md`](deploy/README.md)
-- ⬜ Native Windows notifications and taskbar badge, group chat in the UI and video upload have not been QA'd in a packaged build
+- ✅ Packaged-build QA (unpacked `--dir` build, 2026-10-29): native notifications fire, taskbar overlay badge (fixed: Windows has no `setBadgeCount`), group chat UI, video upload + playback; also the multi-mode org switcher and the web client against a live API (SOT §12). Still to see by eye on an installed (NSIS) build: the toast and badge themselves, and clicking a toast
 - 🟡 Local installer builds can fail on locked-down laptops (endpoint security kills the NSIS step, SOT §13); use the CI artifact
 
 ### Phase 2: public release 🟡 (2a done; spec: SOT §14, decisions D20–D23)
