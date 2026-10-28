@@ -306,7 +306,7 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
     const me = uid(req);
     const post = await prisma.post.findUniqueOrThrow({ where: { id: req.params.id } });
     if (!(await canOverUser(me, 'post.moderate', post.authorId))) throw forbidden();
-    await prisma.post.update({ where: { id: post.id }, data: { isHidden: !post.isHidden } });
+    await prisma.post.update({ where: { id: post.id }, data: { isHidden: !post.isHidden, hiddenAt: post.isHidden ? null : new Date() } });
     await audit(me, post.isHidden ? 'post.unhide' : 'post.hide', post.id);
     if (!post.isHidden) await notify({ recipientId: post.authorId, actorId: me, type: 'MODERATION', text: 'One of your posts was hidden by a moderator' });
     return { hidden: !post.isHidden };

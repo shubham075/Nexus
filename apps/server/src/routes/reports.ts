@@ -59,8 +59,8 @@ export const reportRoutes: FastifyPluginAsync = async (app) => {
     if (authorId && !(await canOverUser(me, 'report.review', authorId))) throw forbidden('Outside your moderation scope');
 
     if (action === 'HIDE') {
-      if (r.postId) await prisma.post.update({ where: { id: r.postId }, data: { isHidden: true } });
-      if (r.commentId) await prisma.comment.update({ where: { id: r.commentId }, data: { isHidden: true } });
+      if (r.postId) await prisma.post.update({ where: { id: r.postId }, data: { isHidden: true, hiddenAt: new Date() } });
+      if (r.commentId) await prisma.comment.update({ where: { id: r.commentId }, data: { isHidden: true, hiddenAt: new Date() } });
     }
     if (action === 'DELETE') {
       if (r.commentId) await prisma.comment.delete({ where: { id: r.commentId } });

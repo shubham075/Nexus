@@ -8,7 +8,8 @@ import { API_PREFIX } from '@nexus/shared';
 import { env } from './lib/env';
 import { HttpError } from './lib/http';
 import { DagError } from './dag/engine';
-import { ensureBucket } from './lib/storage';
+import { ensureBucket, signMedia, unsignMedia } from './lib/storage';
+import { startRetentionJob } from './lib/retention';
 import { closeRealtime, setupRealtime } from './lib/realtime';
 import { registerObservability } from './lib/observability';
 import { authRoutes } from './routes/auth';
@@ -63,6 +64,12 @@ app.setErrorHandler((err, req, reply) => {
   return reply.status(500).send({ error: { code: 'INTERNAL', message: 'Something went wrong' } });
 });
 
+// Media URLs: stored canonical, sent signed (SOT §8). Covers every route, so old rows are re-signed on read.
+app.addHook('preValidation', async (req) => {
+  if (req.body && typeof req.body === 'object') req.body = unsignMedia(req.body);
+});
+app.addHook('preSerialization', async (_req, _reply, payload) => signMedia(payload));
+
 registerObservability(app);
 await app.register(updateRoutes);
 
@@ -90,9 +97,11 @@ await app.register(
 await ensureBucket().catch((e) => app.log.warn(`MinIO not reachable, uploads disabled: ${e.message}`));
 await app.ready();
 await setupRealtime(app, app.server);
+const stopRetention = startRetentionJob(app.log);
 // Exit promptly on restart/stop: open websockets otherwise keep the process (and the port) alive.
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.once(sig, () => {
+    stopRetention();
     setTimeout(() => process.exit(0), 1500).unref();
     Promise.allSettled([closeRealtime(), app.close()]).finally(() => process.exit(0));
   });

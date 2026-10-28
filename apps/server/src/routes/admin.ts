@@ -8,6 +8,9 @@ import { badRequest, forbidden, notFound, page, pageArgs, parse } from '../lib/h
 import { authenticate, requirePerm, uid } from '../lib/auth';
 import { audit, userLite } from '../lib/notify';
 import { can, invalidateRbac, permissionsOf } from '../rbac';
+import { env } from '../lib/env';
+import { exportFileName, exportUser } from '../lib/export';
+import { lastPurge } from '../lib/retention';
 
 const tempPassword = () => `Nx-${randomBytes(6).toString('base64url')}`;
 
@@ -92,6 +95,16 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
   app.get<{ Params: { id: string } }>('/users/:id/permissions', { preHandler: requirePerm('users.manage') }, async (req) => ({
     permissions: await permissionsOf(req.params.id),
   }));
+
+  /** Export any employee's data (SOT §8); audited as `user.export`. */
+  app.get<{ Params: { id: string } }>('/users/:id/export', { preHandler: requirePerm('users.manage') }, async (req, reply) => {
+    const data = await exportUser(uid(req), req.params.id);
+    reply.header('Content-Disposition', `attachment; filename="${exportFileName(data.profile.name)}"`);
+    return data;
+  });
+
+  /** Current retention settings (env, SOT §11) and the last purge run. */
+  app.get('/retention', { preHandler: requirePerm('users.manage') }, async () => ({ policy: env.retention, lastRun: lastPurge() }));
 
   // ───────── Roles ─────────
   const roleBody = z.object({

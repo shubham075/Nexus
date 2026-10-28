@@ -6,6 +6,7 @@ import { createClient } from 'redis';
 import type { FastifyInstance } from 'fastify';
 import { prisma } from './db';
 import { env } from './env';
+import { signMedia } from './storage';
 
 type Redis = ReturnType<typeof createClient>;
 
@@ -117,7 +118,7 @@ export async function closeRealtime(): Promise<void> {
 }
 
 export function emitToUser(userId: string, event: string, data: unknown): void {
-  io?.to(`user:${userId}`).emit(event, data);
+  io?.to(`user:${userId}`).emit(event, signMedia(data));
 }
 
 /** Users with at least one open socket on any instance. Falls back to this instance if Redis errors. */

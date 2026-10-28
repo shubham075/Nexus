@@ -275,6 +275,8 @@ model Post {
   groupId      String?
   isPinned     Boolean      @default(false)
   isHidden     Boolean      @default(false)
+  /// When a moderator hid it; purged after RETENTION_HIDDEN_CONTENT_DAYS (SOT §11).
+  hiddenAt     DateTime?
   editedAt     DateTime?
   createdAt    DateTime     @default(now())
   author       User         @relation(fields: [authorId], references: [id], onDelete: Cascade)
@@ -297,6 +299,7 @@ model Post {
   @@index([createdAt])
   @@index([authorId, createdAt])
   @@index([groupId, createdAt])
+  @@index([hiddenAt])
 }
 
 model PostMedia {
@@ -363,6 +366,7 @@ model Comment {
   parentId  String?
   body      String
   isHidden  Boolean    @default(false)
+  hiddenAt  DateTime?
   editedAt  DateTime?
   createdAt DateTime   @default(now())
   post      Post       @relation(fields: [postId], references: [id], onDelete: Cascade)
@@ -373,6 +377,7 @@ model Comment {
   reports   Report[]
 
   @@index([postId, createdAt])
+  @@index([hiddenAt])
 }
 
 model SavedPost {
