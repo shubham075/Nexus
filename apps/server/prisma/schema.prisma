@@ -24,6 +24,8 @@ model User {
   isSuperAdmin       Boolean                  @default(false)
   isActive           Boolean                  @default(true)
   mustChangePassword Boolean                  @default(false)
+  /// Null until the address is confirmed (public sign-up, SOT D22). Admin-created and seeded accounts default to verified.
+  emailVerifiedAt    DateTime?                @default(now())
   lastSeenAt         DateTime?
   createdAt          DateTime                 @default(now())
   updatedAt          DateTime                 @updatedAt
@@ -66,6 +68,9 @@ model User {
   profileViewsMade   ProfileView[]            @relation("viewer")
   authSessions       AuthSession[]
   orgMemberships     OrgMember[]
+  emailTokens        EmailToken[]
+  companyFollows     CompanyFollow[]
+  orgInvitesSent     OrgInvite[]
 
   @@index([search], type: Gin)
 }
@@ -129,6 +134,8 @@ model Organization {
   industry   String?
   size       String?
   joinPolicy JoinPolicy @default(INVITE)
+  /// Set by a platform admin (multi mode); members lose access to the org while set.
+  suspendedAt DateTime?
   createdAt  DateTime   @default(now())
 
   members     OrgMember[]
@@ -141,6 +148,8 @@ model Organization {
   events      Event[]
   jobs        Job[]
   newsletters Newsletter[]
+  followers   CompanyFollow[]
+  invites     OrgInvite[]
 }
 
 model OrgMember {
@@ -160,12 +169,60 @@ model OrgMember {
 model OrgDomain {
   id                String       @id @default(cuid())
   orgId             String
-  domain            String       @unique
+  domain            String
   verificationToken String
   verifiedAt        DateTime?
   createdAt         DateTime     @default(now())
   org               Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
+  @@unique([orgId, domain])
+  @@index([domain])
+}
+
+enum EmailTokenPurpose {
+  VERIFY_EMAIL
+  RESET_PASSWORD
+}
+
+/// Single-use email link tokens (SOT §8). Only the SHA-256 hash is stored.
+model EmailToken {
+  id        String            @id @default(cuid())
+  userId    String
+  purpose   EmailTokenPurpose
+  tokenHash String            @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime          @default(now())
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+}
+
+/// Email invite to join an org (join policy INVITE, or people outside its domains).
+model OrgInvite {
+  id          String       @id @default(cuid())
+  orgId       String
+  email       String
+  tokenHash   String       @unique
+  invitedById String
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime     @default(now())
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  invitedBy   User         @relation(fields: [invitedById], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([email])
+}
+
+model CompanyFollow {
+  userId    String
+  orgId     String
+  createdAt DateTime     @default(now())
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@id([userId, orgId])
   @@index([orgId])
 }
 
