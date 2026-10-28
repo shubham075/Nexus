@@ -6,6 +6,7 @@ import { useAuth } from './lib/auth';
 import { onSocket } from './lib/socket';
 import { Spinner, Toasts } from './components/ui';
 import { TopNav } from './components/TopNav';
+import { UpdateBanner } from './components/UpdateBanner';
 import Login from './pages/Login';
 import ChangePassword from './pages/ChangePassword';
 import Feed from './pages/Feed';
@@ -72,6 +73,7 @@ export default function App() {
   return (
     <div className="flex h-full flex-col">
       <TopNav />
+      <UpdateBanner />
       <Toasts />
       <main className="flex-1 overflow-y-auto" id="scroll-root">
         <ErrorBoundary resetKey={location.pathname}>

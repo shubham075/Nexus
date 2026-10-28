@@ -20,6 +20,11 @@ if (!window.nexus) {
     notify: () => {},
     setBadge: (n) => { document.title = n > 0 ? `(${n}) Nexus` : 'Nexus'; },
     onNavigate: () => () => {},
+    update: {
+      get: async () => ({ status: 'idle' }),
+      install: async () => {},
+      onStatus: () => () => {},
+    },
   };
   window.nexus = bridge;
 }

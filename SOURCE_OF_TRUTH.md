@@ -250,7 +250,7 @@ The renderer also runs in a normal browser at http://localhost:5183 (web bridge 
 | Phase | Scope |
 |-------|-------|
 | 1a ✅ built | Monorepo, infra, DAG engine, RBAC, auth, admin hierarchy/roles UI, feed/posts/reactions/comments/reposts/polls, profiles, connections, messaging, notifications |
-| 1b ✅ built (needs QA) | Groups, events, articles/newsletters, jobs, search, moderation queue, analytics. Remaining: Windows installer signing + auto-update |
+| 1b ✅ built (needs QA) | Groups, events, articles/newsletters, jobs, search, moderation queue, analytics |
 | 1c (in progress) | ✅ realtime/upload QA, E2E + UI tests, CI. In parallel branches: SSO (Azure AD / Google), refresh tokens, rate limiting, password policy · full-text search, Redis · authenticated media, retention, export · auto-update, signing · production deployment |
 | 2 (public) | Multi-tenancy (org per tenant), public sign-up, post visibility levels (public/connections/nodes), premium, recommendations ML, web + mobile clients |
 
@@ -274,6 +274,11 @@ Verified on Docker Desktop 29.1 (Windows), prod stack on 8088/8443 next to the d
 5. Bundle run outside Docker with storage and DB down: `/health/live` 200, `/health/ready` 503 naming both failing checks.
 
 Known limits: one API instance only (DAG/RBAC caches are per process); the bundled S3 is SeaweedFS because MinIO images are no longer published.
+
+### 2026-10-28 — auto-update + code-signing readiness (phase 1c)
+Added `electron-updater` 6.3.9 (generic feed from `nexus.config.json` `updateUrl`, else `<apiUrl>/updates/`), "Restart to update" banner, API `GET /updates/*` (`@fastify/static`, `UPDATES_DIR`), `publish` config (latest.yml + blockmap), `CSC_LINK`/`CSC_KEY_PASSWORD` and Azure Trusted Signing (`build:win:azure`) paths; see §13.
+Verified: `pnpm typecheck` clean; `electron-vite build` succeeds with electron-updater bundled into `out/main`.
+Not yet covered: an end-to-end update (install v0.1.0 → publish v0.1.1 → banner → restart) — needs a packaged NSIS build, which this managed laptop's endpoint security blocks; run it from CI artifacts. Signing untested (no certificate yet).
 
 ### 2026-10-28 — full click-through + API end-to-end pass
 Fixed:
@@ -317,11 +322,27 @@ Not yet covered: native Windows notifications and taskbar badge (Electron-only; 
 ## 13. Windows installer
 
 ```bash
-pnpm build:win        # → apps/desktop/release/Nexus-Setup-<version>.exe (NSIS, x64, unsigned)
+pnpm build:win        # → apps/desktop/release/Nexus-Setup-<version>.exe (+ .blockmap, latest.yml); unsigned unless CSC_* set
+pnpm build:win:azure  # same, signed with Azure Trusted Signing (electron-builder.azure.yml)
 ```
-- **Point installs at your server**: put `nexus.config.json` next to `Nexus.exe` (IT-wide) or in `%APPDATA%\Nexus` (per user): `{ "apiUrl": "https://nexus.yourcompany.internal" }`. Falls back to `NEXUS_API_URL`, then `http://localhost:4000`.
-- **Unsigned**: Windows SmartScreen shows "unknown publisher" until a code-signing certificate is added (`CSC_LINK` / `CSC_KEY_PASSWORD`).
+- **Point installs at your server**: put `nexus.config.json` next to `Nexus.exe` (IT-wide) or in `%APPDATA%\Nexus` (per user): `{ "apiUrl": "https://nexus.yourcompany.internal", "updateUrl": "https://…/nexus/" }`. Each key is looked up per-user file → exe-side file → env (`NEXUS_API_URL`, `NEXUS_UPDATE_URL`) → default (`http://localhost:4000`; feed = `<apiUrl>/updates/`). `updateUrl` is optional.
 - **First build on a machine without symlink rights** fails extracting electron-builder's `winCodeSign` (macOS symlinks). Fix once: enable Windows Developer Mode, or extract `%LOCALAPPDATA%\electron-builder\Cache\winCodeSign\*.7z` into `winCodeSign-2.6.0` in the same folder (the two symlink errors are harmless).
 - **NSIS step killed (`Exit code: null. Command failed: …\Nexus-Setup-<v>.exe`)**: electron-builder runs the half-built installer once to produce the uninstaller. On managed machines endpoint security can kill that process when Node launches it (it runs fine by hand). Seen 2026-10-28 on 2 of 3 runs; one run passed. Fix: exclude `apps/desktop/release` from AV scanning, or build on CI / a non-managed machine. When this fails, `release/Nexus-Setup-*.exe` is a broken ~200 KB stub, so don't ship it.
 - Installer is ~25 MB (no `node_modules` ship; everything is bundled by electron-vite).
-- Auto-update is not wired yet (phase 1c: `electron-updater` + an internal update feed).
+
+### 13.1 Auto-update (`electron-updater`, generic feed)
+- Main process (`apps/desktop/src/main/updater.ts`) checks the feed 15 s after start and every 4 h, downloads in the background, then the renderer shows a **"Restart to update"** banner (`UpdateBanner`, via `window.nexus.update`). It never restarts on its own: the update installs when the user clicks the button or the next time they quit Nexus (`autoInstallOnAppQuit`). Dev runs (`!app.isPackaged`) skip updates.
+- **Feed** = a folder holding `latest.yml`, `Nexus-Setup-<v>.exe` and `Nexus-Setup-<v>.exe.blockmap`. Chosen hosting: the API serves it at `GET /updates/*` from `UPDATES_DIR` (default `apps/server/updates`, git-ignored) with `@fastify/static` (Range requests for blockmap differential downloads; `latest.yml` is `no-cache`). The route is unauthenticated on purpose; the folder holds only installers. Any static HTTPS server (IIS, nginx, a file share behind HTTP) also works: set `updateUrl` to it.
+- `electron-builder.yml` `publish` (generic) only makes electron-builder write `latest.yml`, the blockmap and `app-update.yml`; its URL is a placeholder because the client sets the feed URL at runtime. Builds run with `--publish never`, so nothing is uploaded.
+
+### 13.2 Release process
+1. Bump `version` in `apps/desktop/package.json` (semver; the updater only offers higher versions).
+2. `pnpm build:win` (or `build:win:azure`, or CI on a `windows-latest` runner).
+3. Upload **`latest.yml` last**, after `Nexus-Setup-<v>.exe` and `.blockmap`, into the feed folder (`UPDATES_DIR` on the API host, or your static host). Keep the previous installer for a while so in-flight downloads finish.
+4. Clients pick it up within 4 h (or on next launch). New installs: hand out the same `.exe`.
+
+### 13.3 Code signing (unsigned by default)
+- **PFX/EV via signtool**: set `CSC_LINK` (path, https URL or base64 of the `.pfx`) and `CSC_KEY_PASSWORD` in the build environment; electron-builder signs the app exe, installer and uninstaller. Nothing to change in config. (EV tokens on a hardware key need `win.signtoolOptions` / a custom `sign` hook instead.)
+- **Azure Trusted Signing**: fill `endpoint`, `codeSigningAccountName`, `certificateProfileName` and `win.publisherName` (the certificate's subject CN) in `apps/desktop/electron-builder.azure.yml`, set `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` (Entra app with the *Trusted Signing Certificate Profile Signer* role), run `pnpm build:win:azure`. Needs PowerShell + the `TrustedSigning` module (electron-builder installs it).
+- **CI**: store the PFX as a base64 secret → `CSC_LINK`, password → `CSC_KEY_PASSWORD` (or the three `AZURE_*` secrets); upload `release/latest.yml`, `*.exe`, `*.blockmap` as artifacts, then copy them to the feed. Never commit certificates.
+- **How unsigned builds behave**: SmartScreen shows "unknown publisher" on first install; updates still work because `app-update.yml` has no `publisherName`, so `electron-updater` skips the signature check (integrity is only the sha512 in `latest.yml`, so serve the feed over HTTPS). Once a build is signed, its `app-update.yml` records the publisher and that install **rejects any later update that is unsigned or signed by another publisher**. So: switching unsigned → signed is a normal update; never go back to unsigned, and keep the same certificate subject when renewing.

@@ -182,11 +182,12 @@ The demo hierarchy includes multi-parent units: **Mobile Squad** reports to both
 pnpm build:win
 ```
 
-Output: `apps/desktop/release/Nexus-Setup-<version>.exe` (NSIS, x64, about 25 MB). Bump `version` in `apps/desktop/package.json` for each release.
+Output in `apps/desktop/release/`: `Nexus-Setup-<version>.exe` (NSIS, x64, about 25 MB), its `.blockmap` and `latest.yml` (the auto-update manifest). Bump `version` in `apps/desktop/package.json` for each release.
 
 - **First build** downloads Electron and the NSIS tools (a few minutes). Later builds take 1–2 minutes.
 - **"Cannot create symbolic link" error:** turn on Windows **Developer Mode**, or see section 13 of `SOURCE_OF_TRUTH.md` for the one-time cache workaround.
-- **Unsigned:** SmartScreen warns about an unknown publisher until you add a code-signing certificate (`CSC_LINK`, `CSC_KEY_PASSWORD` env vars).
+- **Unsigned by default:** SmartScreen warns about an unknown publisher. To sign, set `CSC_LINK` (the `.pfx`) and `CSC_KEY_PASSWORD` before `pnpm build:win`, or use Azure Trusted Signing with `pnpm --filter @nexus/desktop build:win:azure` (fill in `apps/desktop/electron-builder.azure.yml`, set `AZURE_TENANT_ID` / `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET`). Once you ship a signed build, never ship an unsigned one again: signed installs reject unsigned updates. Details: `SOURCE_OF_TRUTH.md` §13.3.
+- **Endpoint security** on some managed laptops kills the NSIS step (`Exit code: null`); build on CI (`windows-latest`) instead.
 
 ---
 
@@ -201,6 +202,12 @@ Full guide: **[`deploy/README.md`](deploy/README.md)** (what to provision, first
    { "apiUrl": "https://nexus.yourcompany.internal" }
    ```
    Lookup order: per-user file → file next to the exe → `NEXUS_API_URL` env var → `http://localhost:4000`.
+4. **Updates:** clients check `<apiUrl>/updates/` on launch and every 4 hours, download in the background and show a **Restart to update** banner (they never restart on their own). To use another static host add `"updateUrl": "https://files.yourcompany.internal/nexus/"` to `nexus.config.json`.
+
+### Releasing an update
+1. Bump `version` in `apps/desktop/package.json`.
+2. `pnpm build:win` (signed if `CSC_LINK` / Azure is configured).
+3. Copy `Nexus-Setup-<v>.exe` and `Nexus-Setup-<v>.exe.blockmap`, then **`latest.yml` last**, into the API host's `apps/server/updates/` folder (or `UPDATES_DIR`), or to your `updateUrl` host. No server restart needed.
 
 ---
 
@@ -231,7 +238,7 @@ Legend: ✅ done · 🟡 partly done · ⬜ not started
 - ✅ Automated tests: API e2e suite in the repo (`pnpm test:e2e`, 16 scenarios), Playwright UI tests (`pnpm test:ui`), GitHub Actions CI (`.github/workflows/ci.yml`: typecheck, unit, API e2e, UI; Windows installer artifact on `master`)
 - ⬜ SSO (Azure AD / Google Workspace OIDC), refresh tokens, rate limiting, password policy
 - ⬜ Full-text search (Postgres `tsvector`), Redis for Socket.IO fan-out
-- ⬜ Auto-update (`electron-updater` + internal feed), code-signing certificate
+- ✅ Auto-update (`electron-updater` + generic feed served by the API at `/updates/`), "Restart to update" banner, code-signing wiring (PFX or Azure Trusted Signing). Still needed: a real certificate and an end-to-end update test from a CI-built installer
 - ⬜ Authenticated media URLs (currently unguessable but public keys), retention policy, data export
 - ✅ Production deployment guide/scripts: API Docker image, prod compose (Caddy HTTPS/WSS, Postgres, S3, Redis), nightly backups + tested restore, `/health/ready|live`, Prometheus metrics ([`deploy/README.md`](deploy/README.md))
 

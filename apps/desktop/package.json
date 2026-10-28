@@ -9,7 +9,8 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "build:win": "electron-vite build && electron-builder --win",
+    "build:win": "electron-vite build && electron-builder --win --publish never",
+    "build:win:azure": "electron-vite build && electron-builder --win --publish never --config electron-builder.azure.yml",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "dev:web": "vite --config vite.web.config.ts",
     "test:ui": "playwright test"
@@ -28,6 +29,7 @@
     "date-fns": "4.1.0",
     "electron": "33.2.0",
     "electron-builder": "25.1.8",
+    "electron-updater": "6.3.9",
     "electron-vite": "2.3.0",
     "lucide-react": "0.456.0",
     "postcss": "8.4.49",

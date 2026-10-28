@@ -26,6 +26,7 @@ import { jobRoutes } from './routes/jobs';
 import { searchRoutes } from './routes/search';
 import { mediaRoutes } from './routes/media';
 import { reportRoutes } from './routes/reports';
+import { updateRoutes } from './routes/updates';
 
 // JSON logs to stdout (pino). TRUST_PROXY=true behind the reverse proxy so req.ip is the client, not the proxy.
 const app = Fastify({
@@ -63,6 +64,7 @@ app.setErrorHandler((err, req, reply) => {
 });
 
 registerObservability(app);
+await app.register(updateRoutes);
 
 await app.register(
   async (api) => {
