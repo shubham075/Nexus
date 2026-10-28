@@ -193,7 +193,10 @@ Example: *Moderator* user-granted at **Engineering** may moderate posts by anyon
 - Job post (title, node, location, type, description, skills). Apply with note + profile; recruiter (`job.manage`) sees applicants and changes status (applied → reviewing → interview → offer → closed). Save job.
 
 ### 5.10 Search
-- Global search: people, posts, groups, events, jobs, hashtags (Postgres `ILIKE` phase 1; full-text/`tsvector` later).
+- Global search: people, posts, groups, events, jobs, hashtags, units. Response shape `{ people, posts, groups, events, jobs, hashtags, units }`.
+- Phase 1c: Postgres full-text search. `User`, `Skill`, `Post`, `Article`, `Job`, `Group`, `Event` have a generated `search` tsvector (GIN-indexed, migration `full_text_search`) holding both `english` (stemmed: "engineers" finds "engineering") and `simple` (unstemmed) lexemes. Weights: A name/title, B headline/description/skills, C body.
+- Queries: every word must match, each as a prefix (`eng` → `eng:*`), so search-as-you-type works; results ordered by `ts_rank` (people: name + headline + skill ranks summed). Articles surface through their feed post. `#tag` also matches posts tagged with a hashtag starting with `tag`. Hashtags and units stay `ILIKE` (small tables, substring match). Code: `apps/server/src/lib/search.ts`.
+- Prisma declares the columns as `Unsupported("tsvector")? @default(dbgenerated())` so `migrate dev` sees no drift.
 
 ### 5.11 Moderation
 - Report post/comment/user with reason → queue visible to users with `report.review` scoped by DAG → actions: dismiss, hide, delete, warn.
@@ -217,6 +220,7 @@ Full definition: `apps/server/prisma/schema.prisma` (authoritative for fields).
 - Cursor pagination: `?cursor=<id>&limit=20` → `{ items, nextCursor }`.
 - Errors: `{ error: { code, message } }` with proper HTTP status.
 - Realtime: Socket.IO namespace `/`, auth via JWT in handshake; rooms `user:<id>`, `conv:<id>`.
+- Multiple API instances: set `REDIS_URL` → `@socket.io/redis-adapter` fans events out across instances, and presence lives in Redis (`nexus:presence:<instance>` hashes with a 30 s TTL refreshed every 10 s, listed in `nexus:presence:instances`, so a crashed instance's users go offline). Unset → single instance, in-memory. If `REDIS_URL` is set but unreachable the API fails to start (5 s) rather than silently diverging.
 - Events: `notification:new`, `message:new`, `message:read`, `typing`, `presence`.
 
 ---
@@ -248,7 +252,7 @@ The renderer also runs in a normal browser at http://localhost:5183 (web bridge 
 |-------|-------|
 | 1a ✅ built | Monorepo, infra, DAG engine, RBAC, auth, admin hierarchy/roles UI, feed/posts/reactions/comments/reposts/polls, profiles, connections, messaging, notifications |
 | 1b ✅ built (needs QA) | Groups, events, articles/newsletters, jobs, search, moderation queue, analytics. Remaining: Windows installer signing + auto-update |
-| 1c | SSO (Azure AD / Google), refresh tokens, full-text search, Redis, E2E tests |
+| 1c | SSO (Azure AD / Google), refresh tokens, full-text search ✅, Redis ✅, E2E tests |
 | 2 (public) | Multi-tenancy (org per tenant), public sign-up, post visibility levels (public/connections/nodes), premium, recommendations ML, web + mobile clients |
 
 ---
@@ -281,6 +285,13 @@ Polish: neutral cover/graph/accents, muted avatar palette, compact admin row act
 Verified: desktop + server typecheck clean; 7/7 DAG/RBAC unit tests; 45-step API e2e script (jobs, events, articles, polls, reposts, reactions, scoped moderation, reports, connections, invites, hierarchy edges/cycles/last-parent, grants/revoke, group chat, search, analytics, audit) all pass on a fresh seed.
 
 Not yet covered: multi-user realtime in two live Electron windows, file upload via the UI picker, Windows installer build.
+
+### 2026-10-28 — phase 1c: full-text search + Redis
+Built: tsvector generated columns + GIN indexes (migration `20261028120000_full_text_search`), ranked prefix search in `/search` (shape unchanged), Socket.IO Redis adapter + Redis presence, `redis` service in dev `docker-compose.yml` (host :6381), `REDIS_URL` in `.env.example` (commented = off).
+
+Verified: server typecheck clean; `pnpm test` (unit tests; DB search tests skip without `DATABASE_URL`); `src/lib/search.test.ts` against a migrated DB: 6 ranking/prefix/stemming/hashtag/visibility cases pass; `prisma migrate diff` (schema ↔ DB and ↔ migrations) empty; two API instances (:4101/:4102) on one Redis: message sent via A reached a socket on B, presence on A saw a user connected to B and cleared on disconnect; `/search` on seed data (`eng`, `engineers`, `priya`, `design`, `#`).
+
+Notes: run DB search tests with `DATABASE_URL=… pnpm test`. People search needs every word in one field set (name+headline, or one skill); a mix like "priya react" across name and skill does not match. `GET /users?q=` (mention picker) still uses substring `ILIKE` on purpose (matches mid-name).
 
 ---
 

@@ -25,7 +25,7 @@ export const messageRoutes: FastifyPluginAsync = async (app) => {
         messages: { orderBy: { createdAt: 'desc' }, take: 1, include: { sender: { select: { id: true, name: true } } } },
       },
     });
-    const online = new Set(onlineUserIds());
+    const online = new Set(await onlineUserIds());
     return Promise.all(
       convs.map(async (c) => {
         const mine = c.members.find((m) => m.userId === me)!;
@@ -125,7 +125,7 @@ export const messageRoutes: FastifyPluginAsync = async (app) => {
     await membership(req.params.id, me);
     const c = await prisma.conversation.findUnique({ where: { id: req.params.id }, include: { members: { include: { user: { select: userLite } } } } });
     if (!c) throw notFound('Conversation');
-    const online = new Set(onlineUserIds());
+    const online = new Set(await onlineUserIds());
     return { ...c, members: c.members.map((m) => ({ ...m.user, online: online.has(m.userId) })) };
   });
 };

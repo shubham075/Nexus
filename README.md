@@ -224,7 +224,7 @@ Legend: ✅ done · 🟡 partly done · ⬜ not started
 - ⬜ Two-user realtime QA (messaging and notifications across two live clients); UI file-picker upload QA
 - ⬜ Automated tests: move the API e2e script into the repo + CI (GitHub Actions); UI tests (Playwright)
 - ⬜ SSO (Azure AD / Google Workspace OIDC), refresh tokens, rate limiting, password policy
-- ⬜ Full-text search (Postgres `tsvector`), Redis for Socket.IO fan-out
+- ✅ Full-text search (Postgres `tsvector` + GIN, `ts_rank`, prefix search-as-you-type), Redis for Socket.IO fan-out + shared presence (opt-in via `REDIS_URL`)
 - ⬜ Auto-update (`electron-updater` + internal feed), code-signing certificate
 - ⬜ Authenticated media URLs (currently unguessable but public keys), retention policy, data export
 - ⬜ Production deployment guide/scripts (Docker image for the API, backups, monitoring)

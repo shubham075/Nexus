@@ -27,6 +27,7 @@ model User {
   lastSeenAt         DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
+  search             Unsupported("tsvector")? @default(dbgenerated()) /// generated column + GIN index, see migration full_text_search
 
   memberships        Membership[]
   grants             RoleGrant[]
@@ -63,6 +64,8 @@ model User {
   auditLogs          AuditLog[]
   profileViews       ProfileView[]  @relation("viewed")
   profileViewsMade   ProfileView[]  @relation("viewer")
+
+  @@index([search], type: Gin)
 }
 
 // ───────────────────────── Hierarchy DAG ─────────────────────────
@@ -176,7 +179,9 @@ model Skill {
   name         String
   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   endorsements Endorsement[]
+  search       Unsupported("tsvector")? @default(dbgenerated()) /// generated column + GIN index, see migration full_text_search
 
+  @@index([search], type: Gin)
   @@unique([userId, name])
 }
 
@@ -286,7 +291,9 @@ model Post {
   savedBy      SavedPost[]
   hashtags     PostHashtag[]
   reports      Report[]
+  search       Unsupported("tsvector")? @default(dbgenerated()) /// generated column + GIN index, see migration full_text_search
 
+  @@index([search], type: Gin)
   @@index([createdAt])
   @@index([authorId, createdAt])
   @@index([groupId, createdAt])
@@ -487,6 +494,9 @@ model Group {
   creator     User          @relation(fields: [creatorId], references: [id], onDelete: Cascade)
   members     GroupMember[]
   posts       Post[]
+  search      Unsupported("tsvector")? @default(dbgenerated()) /// generated column + GIN index, see migration full_text_search
+
+  @@index([search], type: Gin)
 }
 
 model GroupMember {
@@ -525,6 +535,9 @@ model Event {
   organizer   User        @relation(fields: [organizerId], references: [id], onDelete: Cascade)
   rsvps       EventRsvp[]
   posts       Post[]
+  search      Unsupported("tsvector")? @default(dbgenerated()) /// generated column + GIN index, see migration full_text_search
+
+  @@index([search], type: Gin)
 }
 
 model EventRsvp {
@@ -573,6 +586,9 @@ model Article {
   author       User        @relation(fields: [authorId], references: [id], onDelete: Cascade)
   newsletter   Newsletter? @relation(fields: [newsletterId], references: [id], onDelete: SetNull)
   post         Post?
+  search       Unsupported("tsvector")? @default(dbgenerated()) /// generated column + GIN index, see migration full_text_search
+
+  @@index([search], type: Gin)
 }
 
 // ───────────────────────── Jobs ─────────────────────────
@@ -608,6 +624,9 @@ model Job {
   applications JobApplication[]
   savedBy      SavedJob[]
   posts        Post[]
+  search       Unsupported("tsvector")? @default(dbgenerated()) /// generated column + GIN index, see migration full_text_search
+
+  @@index([search], type: Gin)
 }
 
 model JobApplication {
