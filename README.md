@@ -109,6 +109,8 @@ The defaults work out of the box for local development. Change `JWT_SECRET` for 
 | `JWT_SECRET` | Signs login tokens. **Use a long random value outside dev** |
 | `PORT`, `PUBLIC_URL` | API port and the public base URL used in media links |
 | `S3_*` | Object storage endpoint, bucket and keys |
+| `MEDIA_URL_SECRET`, `MEDIA_URL_TTL_SECONDS` | Signs media links (defaults: derived from `JWT_SECRET`, 3600 s) |
+| `RETENTION_*` | Purge windows in days for hidden content, messages, notifications, audit log (see SOT §8) |
 | `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`, `SEED_DEMO_PASSWORD` | Credentials created by the seed |
 
 ### 5. Create the database and demo data
@@ -129,7 +131,7 @@ The Electron window opens on the sign-in screen. The renderer also works in a no
 ### 7. Verify
 
 ```bash
-pnpm test           # DAG engine + RBAC unit tests (7 tests)
+pnpm test           # DAG engine, RBAC and media-signature unit tests (13 tests)
 pnpm typecheck      # all packages
 ```
 
@@ -226,7 +228,7 @@ Legend: ✅ done · 🟡 partly done · ⬜ not started
 - ⬜ SSO (Azure AD / Google Workspace OIDC), refresh tokens, rate limiting, password policy
 - ⬜ Full-text search (Postgres `tsvector`), Redis for Socket.IO fan-out
 - ⬜ Auto-update (`electron-updater` + internal feed), code-signing certificate
-- ⬜ Authenticated media URLs (currently unguessable but public keys), retention policy, data export
+- ✅ Signed, expiring media URLs (HMAC, re-signed on every read); retention purge job (defaults await product-owner confirmation, SOT P1); JSON data export (self + admin, audited)
 - ⬜ Production deployment guide/scripts (Docker image for the API, backups, monitoring)
 
 ### Phase 2: public release ⬜

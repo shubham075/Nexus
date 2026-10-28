@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Bell, Briefcase, Home, MessageSquareText, Search, Shield, Users, Network as OrgIcon, Bookmark, CalendarDays, Newspaper, UsersRound, LogOut, KeyRound } from 'lucide-react';
+import { Bell, Briefcase, Home, MessageSquareText, Search, Shield, Users, Network as OrgIcon, Bookmark, CalendarDays, Newspaper, UsersRound, LogOut, KeyRound, Download } from 'lucide-react';
 import { APP_NAME } from '@nexus/shared';
-import { api } from '@/lib/api';
+import { api, downloadJson } from '@/lib/api';
+import { useToasts } from '@/lib/toast';
 import { useAuth } from '@/lib/auth';
 import { useTheme } from '@/lib/theme';
 import { Monitor, Moon, Sun } from 'lucide-react';
@@ -95,6 +96,16 @@ export function TopNav() {
             <MenuItem icon={<Newspaper size={16} />} onClick={() => navigate('/articles')}>Articles & newsletters</MenuItem>
             <MenuItem icon={<Bookmark size={16} />} onClick={() => navigate('/saved')}>Saved items</MenuItem>
             <MenuItem icon={<KeyRound size={16} />} onClick={() => navigate('/settings/password')}>Change password</MenuItem>
+            <MenuItem
+              icon={<Download size={16} />}
+              onClick={() =>
+                downloadJson('/users/me/export', `nexus-export-${new Date().toISOString().slice(0, 10)}.json`)
+                  .then(() => useToasts.getState().push('Your data export was downloaded', 'info'))
+                  .catch((e) => useToasts.getState().push(e.message))
+              }
+            >
+              Export my data
+            </MenuItem>
             <div className="flex items-center justify-between px-4 py-2 text-sm font-medium text-zinc-700" onClick={(e) => e.stopPropagation()}>
               Theme
               <div className="flex rounded-full bg-zinc-100 p-0.5">

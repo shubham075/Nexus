@@ -2,6 +2,7 @@ import type { Server as HttpServer } from 'node:http';
 import { Server } from 'socket.io';
 import type { FastifyInstance } from 'fastify';
 import { prisma } from './db';
+import { signMedia } from './storage';
 
 let io: Server | null = null;
 const online = new Map<string, number>();
@@ -44,7 +45,7 @@ export function setupRealtime(app: FastifyInstance, server: HttpServer): Server 
 }
 
 export function emitToUser(userId: string, event: string, data: unknown): void {
-  io?.to(`user:${userId}`).emit(event, data);
+  io?.to(`user:${userId}`).emit(event, signMedia(data));
 }
 
 export const onlineUserIds = () => [...online.keys()];

@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, MoreHorizontal, UserPlus } from 'lucide-react';
-import { api } from '@/lib/api';
+import { api, downloadJson } from '@/lib/api';
+import { useToasts } from '@/lib/toast';
 import { useAuth } from '@/lib/auth';
 import { ago } from '@/lib/format';
 import { Avatar, ErrorText, Menu, MenuItem, Modal, Spinner } from '@/components/ui';
@@ -99,6 +100,14 @@ export default function AdminUsers() {
                   <Menu trigger={<button className="rounded-full p-1.5 text-zinc-500 hover:bg-zinc-100" aria-label="Actions"><MoreHorizontal size={18} /></button>}>
                     <MenuItem onClick={() => setPerms(u)}>Effective permissions</MenuItem>
                     <MenuItem onClick={() => confirm(`Reset password for ${u.name}?`) && reset.mutate(u)}>Reset password</MenuItem>
+                    <MenuItem
+                      onClick={() =>
+                        confirm(`Export all data for ${u.name}? This is recorded in the audit log.`) &&
+                        downloadJson(`/admin/users/${u.id}/export`, `nexus-export-${u.email.split('@')[0]}-${new Date().toISOString().slice(0, 10)}.json`).catch((e) => useToasts.getState().push(e.message))
+                      }
+                    >
+                      Export data
+                    </MenuItem>
                     {me.isSuperAdmin && u.id !== me.id && <MenuItem onClick={() => update.mutate({ id: u.id, isSuperAdmin: !u.isSuperAdmin })}>{u.isSuperAdmin ? 'Revoke super admin' : 'Make super admin'}</MenuItem>}
                     {u.id !== me.id && <MenuItem danger={u.isActive} onClick={() => update.mutate({ id: u.id, isActive: !u.isActive })}>{u.isActive ? 'Deactivate' : 'Reactivate'}</MenuItem>}
                   </Menu>

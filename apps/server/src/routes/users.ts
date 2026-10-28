@@ -6,6 +6,7 @@ import { authenticate, uid } from '../lib/auth';
 import { notify, userLite } from '../lib/notify';
 import { getDag } from '../dag/cache';
 import { connectionDegree } from './network';
+import { exportFileName, exportUser } from '../lib/export';
 
 const dateish = z.coerce.date();
 const experienceBody = z.object({
@@ -36,6 +37,13 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
       orderBy: { name: 'asc' },
       select: userLite,
     });
+  });
+
+  /** Download my own data as JSON (SOT §8 data export). */
+  app.get('/me/export', async (req, reply) => {
+    const data = await exportUser(uid(req), uid(req));
+    reply.header('Content-Disposition', `attachment; filename="${exportFileName(data.profile.name)}"`);
+    return data;
   });
 
   app.get<{ Params: { id: string } }>('/:id', async (req) => {

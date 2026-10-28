@@ -5,7 +5,7 @@
 > This document is the single source of truth for product scope, architecture and decisions.
 > Any change to a decision below must be made here first.
 
-Last updated: 2026-10-27
+Last updated: 2026-10-28
 
 ---
 
@@ -29,6 +29,13 @@ Last updated: 2026-10-27
 | D14 | Membership | Employee may belong to **multiple hierarchy nodes** |
 | D15 | RBAC model | **Fixed permission catalog + admin-defined custom roles** |
 | D16 | Visual design | **Minimal, premium, neutral palette with light / dark / system theme** — colors are CSS-variable tokens (`index.css`), toggle in the *Me* menu |
+
+Proposed, awaiting product-owner confirmation (built with these defaults, all configurable by env):
+
+| # | Topic | Proposal |
+|---|-------|----------|
+| P1 | Retention (§11) | Moderator-hidden posts/comments purged **30 days** after hiding; **read** notifications after **90 days**, all notifications after **365 days**; **messages kept forever** (proposal: 2 years once confirmed); audit log kept forever. Daily purge job in the API process. Files of purged posts/messages are deleted when nothing else references them |
+| P2 | Data export (§8) | Every employee can download their own data as JSON; admins with `users.manage` can export any employee. Each export is audited (`user.export`) |
 
 Engineering choices (made by the build, can be revisited):
 
@@ -226,6 +233,9 @@ Full definition: `apps/server/prisma/schema.prisma` (authoritative for fields).
 - Electron: `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, narrow preload bridge; token kept in main process with `safeStorage`.
 - All permission checks server-side; UI hides controls only as UX.
 - Uploads: type allow-list (image/*, video/mp4, application/pdf), size limits, stored in MinIO with server-generated keys.
+- **Media URLs are signed** (phase 1c). The database stores canonical URLs (`<PUBLIC_URL>/api/v1/media/<key>`); `GET /media/<key>` requires `?exp=<unix s>&sig=<HMAC-SHA256(key:exp)>` and answers 403 when missing, tampered or expired. A server hook re-signs every media URL in every API response and realtime event (so old rows keep working and `<img>`/`<video>` need no bearer token), and strips signatures from incoming bodies. Secret: `MEDIA_URL_SECRET` (falls back to a key derived from `JWT_SECRET`). Expiry is rounded to `MEDIA_URL_TTL_SECONDS` (default 3600) windows, so a URL is stable (browser-cacheable) for an hour and valid 1–2 h; a page left open longer needs a refetch. Links copied out of the app stop working after that.
+- **Retention** (proposal P1): env `RETENTION_HIDDEN_CONTENT_DAYS` (30), `RETENTION_MESSAGE_DAYS` (0 = keep), `RETENTION_READ_NOTIFICATION_DAYS` (90), `RETENTION_NOTIFICATION_DAYS` (365), `RETENTION_AUDIT_LOG_DAYS` (0), `RETENTION_PURGE_EVERY_HOURS` (24, 0 disables). `Post.hiddenAt`/`Comment.hiddenAt` start the clock. `GET /admin/retention` (`users.manage`) shows the policy and last run.
+- **Data export** (proposal P2): `GET /users/me/export` (*Me* menu → Export my data) and `GET /admin/users/:id/export` (`users.manage`, Admin → Employees → ⋯). Covers profile, memberships, experience/education/skills, posts, comments, reactions, saved posts, articles, own messages (with conversation participants by name), connections, follows, groups, events, job applications. Audited as `user.export` with `{ self }`.
 
 ---
 
@@ -248,13 +258,13 @@ The renderer also runs in a normal browser at http://localhost:5183 (web bridge 
 |-------|-------|
 | 1a ✅ built | Monorepo, infra, DAG engine, RBAC, auth, admin hierarchy/roles UI, feed/posts/reactions/comments/reposts/polls, profiles, connections, messaging, notifications |
 | 1b ✅ built (needs QA) | Groups, events, articles/newsletters, jobs, search, moderation queue, analytics. Remaining: Windows installer signing + auto-update |
-| 1c | SSO (Azure AD / Google), refresh tokens, full-text search, Redis, E2E tests |
+| 1c | SSO (Azure AD / Google), refresh tokens, full-text search, Redis, E2E tests. ✅ signed media URLs, retention purge job, data export |
 | 2 (public) | Multi-tenancy (org per tenant), public sign-up, post visibility levels (public/connections/nodes), premium, recommendations ML, web + mobile clients |
 
 ---
 
 ## 11. Open questions
-- Retention policy for messages and deleted content?
+- Retention policy for messages and deleted content? **Proposed defaults built (P1 in §1); please confirm**, especially whether messages should expire (e.g. after 2 years) and whether hidden content should be kept longer for HR/legal holds.
 - Should managers see reportees' analytics?
 - Integration with HRIS (auto-sync hierarchy from HR system)?
 
@@ -281,6 +291,13 @@ Polish: neutral cover/graph/accents, muted avatar palette, compact admin row act
 Verified: desktop + server typecheck clean; 7/7 DAG/RBAC unit tests; 45-step API e2e script (jobs, events, articles, polls, reposts, reactions, scoped moderation, reports, connections, invites, hierarchy edges/cycles/last-parent, grants/revoke, group chat, search, analytics, audit) all pass on a fresh seed.
 
 Not yet covered: multi-user realtime in two live Electron windows, file upload via the UI picker, Windows installer build.
+
+### 2026-10-28 — phase 1c: signed media, retention, data export
+Built: signed media URLs (§8), retention purge job (P1), JSON data export for self and admins (P2), migration `retention_hidden_at`.
+
+Verified (throwaway DB, API on a spare port): upload returns a signed URL; signed GET 200; unsigned, tampered and expired GETs 403; avatar/post media saved from a signed URL are stored canonical and come back re-signed; self export and admin export 200 with all sections; an employee without `users.manage` gets 403 on another user's export; both exports appear in the audit log; `GET /admin/retention` returns the policy; hiding a post sets `hiddenAt`. Unit tests 13/13 (6 new for signatures); typecheck clean.
+
+Not yet covered: a live purge run (the dev machine ran out of memory and Docker stopped during that step; `purgeExpired` is typechecked but unexercised), video seeking after a URL expires, UI click-through of the two export menu items.
 
 ---
 
