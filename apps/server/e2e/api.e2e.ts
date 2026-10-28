@@ -17,9 +17,16 @@ const token: Record<string, string> = {};
 const uid: Record<string, string> = {};
 const unit: Record<string, string> = {};
 const ids: Record<string, string> = {};
+const org: Record<string, string> = {};
 
+/** `as` may be `user@orgId` to send that org as the active org (X-Org-Id, SOT §14.3). */
 async function call(method: string, path: string, as: string | null, body?: unknown) {
   const headers: Record<string, string> = {};
+  if (as?.includes('@')) {
+    const [who, orgId] = as.split('@');
+    headers['x-org-id'] = orgId;
+    as = who;
+  }
   if (as) headers.authorization = `Bearer ${token[as] ?? as}`;
   let payload: string | FormData | undefined;
   if (body instanceof FormData) payload = body;
@@ -57,6 +64,9 @@ before(async () => {
   const users: [string, string, string][] = [
     ['admin', ADMIN_EMAIL, ADMIN_PASSWORD],
     ...['priya', 'rahul', 'meera', 'neha', 'karan', 'vikram', 'divya'].map((u): [string, string, string] => [u, `${u}@nexus.local`, DEMO_PASSWORD]),
+    // second seeded org, used only by the tenancy tests
+    ['gina', 'owner@globex.local', DEMO_PASSWORD],
+    ['sam', 'staff@globex.local', DEMO_PASSWORD],
   ];
   for (const [key, email, password] of users) {
     token[key] = (await ok('POST', '/auth/login', null, { email, password })).token;
@@ -65,7 +75,10 @@ before(async () => {
   const { nodes } = await ok('GET', '/hierarchy', 'admin');
   for (const n of nodes) unit[n.name] = n.id;
   for (const name of ['Engineering', 'Product', 'Sales']) assert.ok(unit[name], `seed unit "${name}" missing`);
+  for (const [key, who] of [['nexus', 'admin'], ['globex', 'gina']]) org[key] = (await ok('GET', '/auth/me', who)).activeOrgId;
+  assert.ok(org.nexus && org.globex && org.nexus !== org.globex, 'two seeded orgs');
 });
+
 
 test('auth: bad credentials and missing tokens are rejected', async () => {
   assert.equal((await fails(401, 'POST', '/auth/login', null, { email: 'rahul@nexus.local', password: 'wrong-password' })).code, 'INVALID_CREDENTIALS');
@@ -291,4 +304,136 @@ test('deactivation: a deactivated user is signed out everywhere', async () => {
   await ok('PATCH', `/admin/users/${uid.newbie}`, 'divya', { isActive: false });
   await fails(401, 'GET', '/auth/me', 'newbie');
   await fails(401, 'POST', '/auth/login', null, { email: `e2e-${run}@nexus.local`, password: `E2e-${run}-pass` });
+});
+
+// ───────── Tenancy (SOT §14, phase 2a): no cross-org reads or writes ─────────
+
+test('tenancy: /auth/me reports the mode and active org; X-Org-Id must be one of my orgs', async () => {
+  const me = await ok('GET', '/auth/me', 'admin');
+  assert.equal(me.tenancy, process.env.TENANCY ?? 'single');
+  assert.deepEqual(me.orgs.map((o: any) => o.id), [org.nexus]);
+  assert.equal((await ok('GET', '/auth/me', `admin@${org.nexus}`)).activeOrgId, org.nexus);
+  await fails(403, 'GET', '/auth/me', `admin@${org.globex}`);
+  await fails(403, 'GET', '/hierarchy', `gina@${org.nexus}`);
+  await fails(403, 'GET', '/hierarchy', 'gina@no-such-org');
+  const gina = await ok('GET', '/auth/me', 'gina');
+  assert.ok(gina.permissions.includes('admin.all'), 'Gina is Super Admin in Globex');
+  assert.ok(!has(gina.memberships, 'Nexus') && !has(me.memberships, 'Globex'));
+});
+
+test('tenancy: hierarchy is per org and cannot be read or changed across orgs', async () => {
+  const globex = await ok('GET', '/hierarchy', 'gina');
+  assert.deepEqual(globex.nodes.map((n: any) => n.name).sort(), ['Globex Inc', 'Globex Ops']);
+  assert.ok(!has(await ok('GET', '/hierarchy', 'admin'), 'Globex'));
+  const ops = globex.nodes.find((n: any) => n.name === 'Globex Ops').id;
+  const root = globex.nodes.find((n: any) => n.name === 'Globex Inc').id;
+
+  await fails(404, 'GET', `/hierarchy/nodes/${unit.Engineering}`, 'gina');
+  await fails(404, 'GET', `/hierarchy/nodes/${ops}`, 'admin');
+  await fails(404, 'POST', '/hierarchy/nodes', 'gina', { name: `Leak ${run}`, type: 'TEAM', parentIds: [unit.Engineering] });
+  await fails(404, 'PATCH', `/hierarchy/nodes/${unit.Engineering}`, 'gina', { name: 'Hijacked' });
+  await fails(404, 'DELETE', `/hierarchy/nodes/${unit.Sales}?reparent=true`, 'gina');
+  await fails(404, 'POST', '/hierarchy/edges', 'gina', { parentId: root, childId: unit.Sales });
+  await fails(404, 'POST', '/hierarchy/edges', 'admin', { parentId: unit.Engineering, childId: ops });
+  await fails(404, 'DELETE', `/hierarchy/edges?parentId=${root}&childId=${ops}`, 'admin');
+  await fails(400, 'POST', `/hierarchy/nodes/${unit.Engineering}/members`, 'admin', { userIds: [uid.sam] });
+  await fails(404, 'POST', `/hierarchy/nodes/${ops}/members`, 'admin', { userIds: [uid.rahul] });
+  assert.equal((await ok('GET', `/hierarchy/nodes/${unit.Engineering}`, 'admin')).name, 'Engineering');
+});
+
+test('tenancy: roles and grants are per org; names are unique per org only', async () => {
+  const name = `Ops ${run}`;
+  const gRole = await ok('POST', '/admin/roles', 'gina', { name, permissions: ['post.create'] });
+  const nRole = await ok('POST', '/admin/roles', 'admin', { name, permissions: ['post.create'] });
+  const gRoles = await ok('GET', '/admin/roles', 'gina');
+  assert.ok(has(gRoles, gRole.id) && !has(gRoles, nRole.id));
+  assert.ok(!has(await ok('GET', '/admin/roles', 'admin'), gRole.id));
+
+  await fails(404, 'PATCH', `/admin/roles/${nRole.id}`, 'gina', { name: 'Hijacked' });
+  await fails(404, 'DELETE', `/admin/roles/${nRole.id}`, 'gina');
+  const ops = (await ok('GET', '/hierarchy', 'gina')).nodes.find((n: any) => n.name === 'Globex Ops').id;
+  await fails(404, 'POST', '/admin/grants', 'gina', { roleId: nRole.id, nodeId: ops, userId: uid.sam });
+  await fails(404, 'POST', '/admin/grants', 'gina', { roleId: gRole.id, nodeId: unit.Engineering });
+  await fails(400, 'POST', '/admin/grants', 'gina', { roleId: gRole.id, nodeId: ops, userId: uid.rahul });
+  await fails(404, 'POST', '/admin/grants', 'admin', { roleId: gRole.id, nodeId: unit.Engineering });
+
+  const nGrants = await ok('GET', '/admin/grants', 'admin');
+  assert.ok(!has(await ok('GET', '/admin/grants', 'gina'), 'Engineering'), 'no Nexus grants in Globex');
+  await fails(404, 'DELETE', `/admin/grants/${nGrants[0].id}`, 'gina');
+
+  // Gina is Super Admin in Globex only: no Nexus permissions leak through her grants
+  const grant = await ok('POST', '/admin/grants', 'gina', { roleId: gRole.id, nodeId: ops, userId: uid.sam });
+  assert.ok((await ok('GET', '/auth/me', 'sam')).permissions.includes('post.create'));
+  await ok('DELETE', `/admin/grants/${grant.id}`, 'gina');
+  await ok('DELETE', `/admin/roles/${gRole.id}`, 'gina');
+  await ok('DELETE', `/admin/roles/${nRole.id}`, 'admin');
+});
+
+test('tenancy: admin users, permissions and exports stay inside the org', async () => {
+  const gUsers = await ok('GET', '/admin/users', 'gina');
+  assert.deepEqual(gUsers.items.map((u: any) => u.id).sort(), [uid.gina, uid.sam].sort());
+  assert.ok(!has(await ok('GET', '/admin/users?limit=50', 'admin'), uid.sam));
+  await fails(400, 'PATCH', `/admin/users/${uid.rahul}`, 'gina', { isActive: false });
+  await fails(400, 'POST', `/admin/users/${uid.rahul}/reset-password`, 'gina');
+  await fails(400, 'GET', `/admin/users/${uid.rahul}/permissions`, 'gina');
+  await fails(400, 'GET', `/admin/users/${uid.rahul}/export`, 'gina');
+  await fails(404, 'POST', '/admin/users', 'gina', { email: `leak-${run}@globex.local`, name: 'Leak', nodeIds: [unit.Engineering] });
+  const samPerms = (await ok('GET', `/admin/users/${uid.sam}/permissions`, 'gina')).permissions;
+  assert.ok(samPerms.includes('post.create') && !samPerms.includes('admin.all'));
+});
+
+test('tenancy: audit log, reports and analytics are per org', async () => {
+  const gAudit = await ok('GET', '/admin/audit', 'gina');
+  assert.ok(has(gAudit, 'globex.seed') && !has(gAudit, 'hierarchy.'), 'Globex audit has only Globex actions');
+  assert.ok(!has(await ok('GET', '/admin/audit?limit=50', 'admin'), 'globex.seed'));
+
+  const gReports = await ok('GET', '/reports', 'gina');
+  const gReport = gReports.find((r: any) => r.details === 'Globex test report');
+  assert.ok(gReport, 'Globex report visible in Globex');
+  assert.ok(!has(await ok('GET', '/reports', 'admin'), 'Globex test report'));
+  await fails(404, 'POST', `/reports/${gReport.id}/resolve`, 'admin', { action: 'DISMISS' });
+  // a report filed from Nexus lands in the Nexus queue only
+  await ok('POST', '/reports', 'karan', { targetUserId: uid.rahul, reason: 'OTHER', details: `nexus-report-${run}` });
+  assert.ok(has(await ok('GET', '/reports', 'admin'), `nexus-report-${run}`));
+  assert.ok(!has(await ok('GET', '/reports', 'gina'), `nexus-report-${run}`));
+  // Gina cannot moderate Nexus people's content
+  const post = await ok('POST', '/posts', 'karan', { body: `tenancy ${run}` });
+  await fails(403, 'POST', `/posts/${post.id}/hide`, 'gina');
+  await fails(403, 'DELETE', `/posts/${post.id}`, 'gina');
+  await fails(403, 'POST', `/posts/${post.id}/pin`, 'gina');
+
+  const stats = await ok('GET', '/admin/analytics', 'gina');
+  assert.equal(stats.users, 2, 'Globex analytics count only Globex people');
+  assert.equal(stats.openReports, gReports.length);
+  assert.ok((await ok('GET', '/admin/analytics', 'admin')).users >= 10);
+});
+
+test('tenancy: org-owned groups, events and jobs are invisible and untouchable from another org', async () => {
+  const [gGroups, gEvents, gJobs] = await Promise.all(['/groups', '/events', '/jobs'].map((p) => ok('GET', p, 'gina')));
+  const group = gGroups.find((g: any) => g.name === 'Globex Insiders');
+  const event = gEvents.find((e: any) => e.title === 'Globex Offsite');
+  const job = gJobs.find((j: any) => j.title === 'Globex Ops Lead');
+  assert.ok(group && event && job, 'Globex sees its own groups/events/jobs');
+  assert.ok(!has(gGroups, 'Frontend Guild') && !has(gJobs, 'Senior Mobile Engineer') && !has(gEvents, 'Engineering All-Hands'));
+
+  const [nGroups, nEvents, nJobs] = await Promise.all(['/groups', '/events', '/jobs'].map((p) => ok('GET', p, 'rahul')));
+  assert.ok(!has(nGroups, group.id) && !has(nEvents, event.id) && !has(nJobs, job.id));
+  await fails(404, 'GET', `/groups/${group.id}`, 'rahul');
+  await fails(404, 'POST', `/groups/${group.id}/join`, 'rahul');
+  await fails(404, 'GET', `/groups/${group.id}/members`, 'rahul');
+  await fails(404, 'DELETE', `/groups/${group.id}`, 'admin');
+  await fails(403, 'POST', '/posts', 'rahul', { body: 'leak', groupId: group.id });
+  await fails(404, 'GET', `/events/${event.id}`, 'rahul');
+  await fails(404, 'POST', `/events/${event.id}/rsvp`, 'rahul', { status: 'GOING' });
+  await fails(404, 'DELETE', `/events/${event.id}`, 'admin');
+  await fails(404, 'GET', `/jobs/${job.id}`, 'rahul');
+  await fails(404, 'POST', `/jobs/${job.id}/apply`, 'rahul', {});
+  await fails(404, 'PATCH', `/jobs/${job.id}`, 'admin', { status: 'CLOSED' });
+  await fails(404, 'POST', '/groups', 'gina', { name: `Leak ${run}`, nodeId: unit.Engineering });
+
+  const found = await ok('GET', '/search?q=Globex', 'admin');
+  assert.deepEqual([found.groups, found.events, found.jobs, found.units].map((r) => r.length), [0, 0, 0, 0]);
+  const created = await ok('POST', '/groups', 'gina', { name: `Globex only ${run}` });
+  assert.ok(has(await ok('GET', '/groups', 'gina'), created.id) && !has(await ok('GET', '/groups', 'admin'), created.id));
+  await ok('DELETE', `/groups/${created.id}`, 'gina');
 });
