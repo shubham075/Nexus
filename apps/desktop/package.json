@@ -13,7 +13,9 @@
     "build:win:azure": "electron-vite build && electron-builder --win --publish never --config electron-builder.azure.yml",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "dev:web": "vite --config vite.web.config.ts",
-    "test:ui": "playwright test"
+    "test:ui": "playwright test",
+    "build:web": "vite build --config vite.web.config.ts",
+    "preview:web": "vite preview --config vite.web.config.ts"
   },
   "devDependencies": {
     "@dagrejs/dagre": "1.1.4",

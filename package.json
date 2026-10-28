@@ -13,7 +13,8 @@
     "test:e2e": "pnpm --filter @nexus/server test:e2e",
     "test:ui": "pnpm --filter @nexus/desktop test:ui",
     "typecheck": "pnpm -r typecheck",
-    "build:win": "pnpm --filter @nexus/desktop build:win"
+    "build:win": "pnpm --filter @nexus/desktop build:win",
+    "build:web": "pnpm --filter @nexus/desktop build:web"
   },
   "engines": { "node": ">=20" }
 }

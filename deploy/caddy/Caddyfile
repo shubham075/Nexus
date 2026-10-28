@@ -1,5 +1,6 @@
 # Reverse proxy for the Nexus API. Caddy upgrades WebSockets (Socket.IO) automatically.
-# NEXUS_DOMAIN: the hostname clients use (apiUrl in nexus.config.json = https://NEXUS_DOMAIN).
+# NEXUS_DOMAIN: the API hostname clients use (apiUrl in nexus.config.json = https://NEXUS_DOMAIN).
+# NEXUS_WEB_DOMAIN: the web client's hostname (compose default app.<NEXUS_DOMAIN>), proxied to the web service.
 # CADDY_TLS:
 #   internal                          Caddy's own CA (default; install its root cert on clients, see deploy/README.md)
 #   you@company.com                   public ACME (Let's Encrypt); the host must be reachable from the internet
@@ -28,6 +29,24 @@
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options nosniff
+		-Server
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}
+
+# Web client (deploy/web). Caching and CSP headers come from the web container; this adds HSTS and TLS.
+{$NEXUS_WEB_DOMAIN} {
+	tls {$CADDY_TLS}
+	encode zstd gzip
+
+	reverse_proxy web:8080
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
 		-Server
 	}
 

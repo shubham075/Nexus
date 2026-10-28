@@ -379,6 +379,11 @@ Verified on merged `master`: typecheck clean; `pnpm test` 31/31 (incl. auth rout
 
 ---
 
+### 2026-10-29: web client groundwork (2d), branch `claude/web-client-ca6550`
+`pnpm typecheck` clean; `pnpm build:web` → `dist-web`; served with `vite preview` + a `config.json` → sign-in page renders, `window.nexus.config()` returns the runtime `apiUrl`, no console errors (no dev API was running, so sign-in itself was not exercised). `deploy/web` image built and run: `/` `Cache-Control: no-cache` + CSP with `connect-src 'self' <NEXUS_API_URL>`; `assets/*.js` `max-age=31536000, immutable`; `config.json` `no-store`, trailing slash stripped; deep link → 200 (index fallback). Prod compose resolves `NEXUS_WEB_DOMAIN` to `app.<NEXUS_DOMAIN>`; both Caddyfiles pass `caddy validate`.
+
+---
+
 ## 13. Windows installer
 
 ```bash
@@ -440,3 +445,5 @@ pnpm build:win:azure  # same, signed with Azure Trusted Signing (electron-builde
 | **2c: visibility & feed** | Post visibility (public/connections/org/units), visibility-aware feed, search, notifications and media access | Visibility matrix tests pass |
 | **2d: public surface** | Public jobs on company pages, public groups/events, web client deployment (renderer in browser), basic abuse controls (sign-up rate limits, report users, block) | Web client deployed alongside desktop |
 | **2e: later** | Recommendations, premium, macOS/Linux builds, mobile clients | — |
+
+**2d note: web client (groundwork built 2026-10-29).** The renderer builds as a static site (`pnpm build:web` → `apps/desktop/dist-web`, Vite config `vite.web.config.ts`, hash routing). The API URL is read at runtime from `config.json` beside `index.html` (written by the `deploy/web` container from `NEXUS_API_URL`), so one build serves every environment. Browser bridge (`webBridge.ts`): tokens in `localStorage` (accepted for phase 2, mitigated by a strict CSP; httpOnly refresh cookie is a later hardening step), browser Notification API, badge in `document.title`, no auto-update, SSO hidden (needs a web redirect flow). Hosting: Caddy static image, CSP `connect-src 'self' <api origin>`, hashed assets immutable, index no-cache; served at `app.<domain>`, API at `<domain>`. Still open for 2d: web SSO redirect flow, CORS allow-list (API currently reflects any origin; safe while auth is bearer-only).

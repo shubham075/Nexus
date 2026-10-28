@@ -15,3 +15,6 @@ deploy/updates
 deploy/caddy/certs/*
 !deploy/caddy/certs/.gitkeep
 apps/server/updates
+
+# web client build output
+apps/desktop/dist-web

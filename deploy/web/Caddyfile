@@ -1,0 +1,32 @@
+# Static server for the Nexus web client (dist-web). TLS terminates at the front proxy (deploy/caddy).
+# NEXUS_API_URL is the API origin; it is the only connect-src besides the site itself.
+{
+	admin off
+	auto_https off
+}
+
+:8080 {
+	root * /srv
+	encode zstd gzip
+
+	# Vite content-hashes everything under assets/, so it never changes; index and config always revalidate.
+	@hashed path /assets/*
+	header @hashed Cache-Control "public, max-age=31536000, immutable"
+	@config path /config.json
+	header @config Cache-Control "no-store"
+	@other not path /assets/* /config.json
+	header @other Cache-Control "no-cache"
+
+	header {
+		# img/media allow any https origin: avatars and attachments may come from S3 or link previews.
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; font-src 'self' data:; connect-src 'self' {$NEXUS_API_URL}; frame-src https:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+
+	# SPA fallback (routing is hash-based, so this only catches stray deep links).
+	try_files {path} /index.html
+	file_server
+}

@@ -1,6 +1,6 @@
 # Deploying Nexus (production)
 
-One Linux host (or VM) with Docker runs the whole server side: the API, PostgreSQL, S3-compatible storage, optional Redis, a nightly backup job and Caddy as the HTTPS reverse proxy. Desktop clients connect to `https://<NEXUS_DOMAIN>`.
+One Linux host (or VM) with Docker runs the whole server side: the API, PostgreSQL, S3-compatible storage, optional Redis, a nightly backup job and Caddy as the HTTPS reverse proxy. Desktop clients connect to `https://<NEXUS_DOMAIN>`; the web client is served at `https://<NEXUS_WEB_DOMAIN>` (default `app.<NEXUS_DOMAIN>`, needs its own DNS record) and talks to the same API.
 
 ```
 clients ──HTTPS/WSS──▶ caddy :443 ──▶ api :4000 ──▶ postgres
@@ -17,6 +17,7 @@ clients ──HTTPS/WSS──▶ caddy :443 ──▶ api :4000 ──▶ postgr
 | [`deploy/.env.prod.example`](.env.prod.example) | Every setting; copy to `deploy/.env.prod` |
 | [`deploy/caddy/Caddyfile`](caddy/Caddyfile) | HTTPS, WebSocket upgrade, `/metrics` blocked, JSON access logs |
 | [`deploy/backup/`](backup/) | Backup sidecar image (`backup.sh`, `restore.sh`) |
+| [`deploy/web/`](web/) | Web client image: `pnpm build:web` output served by Caddy on :8080, `config.json` from `NEXUS_API_URL`, CSP + cache headers (see the README "Web client" section) |
 
 ## 1. What you must provision
 
