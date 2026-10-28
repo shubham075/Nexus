@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Permission } from '@nexus/shared';
-import { ApiError, api, getRefreshToken, initApi, setSession, setUnauthorizedHandler } from './api';
+import { ApiError, api, getActiveOrg, getRefreshToken, initApi, setActiveOrg, setSession, setUnauthorizedHandler } from './api';
 import { connectSocket, disconnectSocket } from './socket';
 
 export interface Me {
@@ -15,6 +15,10 @@ export interface Me {
   mustChangePassword: boolean;
   permissions: string[];
   memberships: { title: string | null; isPrimary: boolean; node: { id: string; name: string; type: string } }[];
+  /** SOT D23: the org switcher only exists in multi mode. */
+  tenancy: 'single' | 'multi';
+  orgs: { id: string; slug: string; name: string; logoUrl: string | null }[];
+  activeOrgId: string | null;
 }
 
 interface AuthState {
@@ -25,6 +29,7 @@ interface AuthState {
   loginWithSso: (providerId: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
+  switchOrg: (orgId: string) => void;
 }
 
 export const useAuth = create<AuthState>((set, get) => ({
@@ -40,6 +45,11 @@ export const useAuth = create<AuthState>((set, get) => ({
         connectSocket();
         break;
       } catch (e) {
+        // A remembered org I no longer belong to: fall back to my default org.
+        if (e instanceof ApiError && e.status === 403 && getActiveOrg()) {
+          setActiveOrg(null);
+          continue;
+        }
         // /auth/me already tried a refresh; only a rejected session (4xx) signs out. Offline, restarting or 5xx keeps it and retries.
         if (!(e instanceof ApiError) || (e.status !== 0 && e.status < 500)) {
           await setSession(null);
@@ -70,9 +80,17 @@ export const useAuth = create<AuthState>((set, get) => ({
     const refreshToken = getRefreshToken();
     if (refreshToken) api.post('/auth/logout', { refreshToken }).catch(() => {});
     await setSession(null);
+    setActiveOrg(null);
     set({ me: null });
+
   },
   refresh: async () => set({ me: await api.get<Me>('/auth/me') }),
+  /** Every view is org-scoped, so start over on the home page with fresh data. */
+  switchOrg: (orgId) => {
+    setActiveOrg(orgId);
+    window.location.hash = '#/';
+    window.location.reload();
+  },
 }));
 
 /** UI-only gate; the server enforces every permission (SOT §8). */

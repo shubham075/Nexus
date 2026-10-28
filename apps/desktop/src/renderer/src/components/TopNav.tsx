@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Bell, Briefcase, Home, MessageSquareText, Search, Shield, Users, Network as OrgIcon, Bookmark, CalendarDays, Newspaper, UsersRound, LogOut, KeyRound, Download } from 'lucide-react';
+import { Bell, Briefcase, Home, MessageSquareText, Search, Shield, Users, Network as OrgIcon, Bookmark, CalendarDays, Newspaper, UsersRound, LogOut, KeyRound, Download, Building2, Check } from 'lucide-react';
 import { APP_NAME } from '@nexus/shared';
 import { api, downloadJson } from '@/lib/api';
 import { useToasts } from '@/lib/toast';
@@ -29,6 +29,30 @@ function NavItem({ to, icon, label, badge }: { to: string; icon: React.ReactNode
       </span>
       <span className="mt-0.5 hidden lg:block">{label}</span>
     </NavLink>
+  );
+}
+
+/** Multi mode only (SOT D23): pick the active organization; single mode has exactly one and shows nothing. */
+function OrgSwitcher() {
+  const { me, switchOrg } = useAuth();
+  if (me!.tenancy !== 'multi' || !me!.orgs.length) return null;
+  const active = me!.orgs.find((o) => o.id === me!.activeOrgId);
+  return (
+    <Menu
+      align="left"
+      trigger={
+        <button className="flex h-9 max-w-[160px] items-center gap-1.5 rounded-full px-3 text-sm font-medium text-zinc-700 hover:bg-zinc-100" title="Switch organization">
+          <Building2 size={16} className="shrink-0" />
+          <span className="truncate">{active?.name ?? 'Organization'}</span>
+        </button>
+      }
+    >
+      {me!.orgs.map((o) => (
+        <MenuItem key={o.id} icon={o.id === active?.id ? <Check size={16} /> : <span className="w-4" />} onClick={() => o.id !== active?.id && switchOrg(o.id)}>
+          {o.name}
+        </MenuItem>
+      ))}
+    </Menu>
   );
 }
 
@@ -64,6 +88,8 @@ export function TopNav() {
           <Search size={16} className="absolute left-3 top-2.5 text-zinc-500" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people, posts, jobs, units…" className="h-9 w-full rounded-full bg-zinc-100 pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-zinc-300" />
         </form>
+        <OrgSwitcher />
+
         <nav className="ml-auto flex h-full items-stretch">
           <NavItem to="/" icon={<Home size={22} />} label="Home" />
           <NavItem to="/network" icon={<Users size={22} />} label="My Network" badge={stats?.invites} />

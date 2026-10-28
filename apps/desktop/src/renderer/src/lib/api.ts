@@ -30,6 +30,27 @@ export async function initApi() {
   return token;
 }
 
+/** Active organization, sent as X-Org-Id (SOT §14.3). Remembered per device; only the multi-mode switcher sets it. */
+const ORG_KEY = 'nexus.activeOrg';
+let activeOrg: string | null = (() => {
+  try {
+    return localStorage.getItem(ORG_KEY);
+  } catch {
+    return null;
+  }
+})();
+
+export const getActiveOrg = () => activeOrg;
+export function setActiveOrg(id: string | null) {
+  activeOrg = id;
+  try {
+    if (id) localStorage.setItem(ORG_KEY, id);
+    else localStorage.removeItem(ORG_KEY);
+  } catch {
+    /* storage unavailable: keep it for this session only */
+  }
+}
+
 export const getToken = () => token;
 export const getBaseUrl = () => baseUrl;
 export const getRefreshToken = () => refreshToken;
@@ -89,7 +110,9 @@ const NO_REFRESH = new Set(['/auth/login', '/auth/refresh', '/auth/logout', '/au
 async function request<T>(method: string, path: string, body?: unknown, isForm = false, retried = false): Promise<T> {
   const headers: Record<string, string> = {};
   if (token) headers.Authorization = `Bearer ${token}`;
-  if (body !== undefined && !isForm) headers['Content-Type'] = 'application/json';
+  if (activeOrg) headers['X-Org-Id'] = activeOrg;
+  if (body !== undefined && !isForm)
+ headers['Content-Type'] = 'application/json';
   let res: Response;
   try {
     res = await fetch(url(path), {
