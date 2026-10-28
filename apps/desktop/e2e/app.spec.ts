@@ -6,15 +6,20 @@ const run = Date.now().toString(36);
 // 1×1 PNG
 const PIXEL = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
 
-/** A page signed in as a demo user: the token goes where the web bridge reads it, skipping the form. */
-async function signedIn(browser: Browser, user: string): Promise<Page> {
+/** Signs a demo user in through the API. */
+async function login(user: string): Promise<string> {
   const res = await fetch(`${API}/api/v1/auth/login`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ email: `${user}@nexus.local`, password: PASSWORD }),
   });
   expect(res.ok, `login ${user}`).toBeTruthy();
-  const { token } = await res.json();
+  return (await res.json()).token;
+}
+
+/** A page signed in as a demo user: the token goes where the web bridge reads it, skipping the form. */
+async function signedIn(browser: Browser, user: string, token?: string): Promise<Page> {
+  token ??= await login(user);
   const context = await browser.newContext({ baseURL: test.info().project.use.baseURL });
   await context.addInitScript((t) => localStorage.setItem('nexus.token', t), token);
   const page = await context.newPage();
@@ -47,26 +52,27 @@ test('publishes a post from the composer', async ({ browser }) => {
 
 test('messaging is realtime across two clients: typing, delivery, unread badge, attachments', async ({ browser }) => {
   test.slow(); // two cold page loads of the dev server
-  const priya = await signedIn(browser, 'priya');
+  const priyaToken = await login('priya');
+  const priya = await signedIn(browser, 'priya', priyaToken);
   const meera = await signedIn(browser, 'meera');
 
-  // Priya opens (or reuses) a 1:1 conversation from the UI.
-  await priya.goto('/#/messaging');
-  await priya.getByTitle('New message').click();
-  await priya.getByPlaceholder('Type a name').fill('Meera');
-  // Accessible name of the search result (not the conversation row behind the modal).
-  await priya.getByRole('button', { name: /Meera Iyer\s+Mobile Lead/ }).click();
-  await priya.getByRole('button', { name: 'Start conversation' }).click();
+  // Open (or reuse) the 1:1 conversation directly: /messaging alone auto-opens the most recent thread first,
+  // and typing during that switch would land in a box that is about to unmount.
+  const authed = { authorization: `Bearer ${priyaToken}`, 'content-type': 'application/json' };
+  const [meeraUser] = await (await fetch(`${API}/api/v1/users?q=Meera%20Iyer`, { headers: authed })).json();
+  const { id } = await (await fetch(`${API}/api/v1/conversations`, { method: 'POST', headers: authed, body: JSON.stringify({ userIds: [meeraUser.id] }) })).json();
+  await priya.goto(`/#/messaging/${id}`);
+  await meera.goto(`/#/messaging/${id}`);
   const priyaBox = priya.getByPlaceholder(/Write a message/);
   await expect(priyaBox).toBeVisible();
-  await priyaBox.fill(`Opening line ${run}`);
-  await priyaBox.press('Enter');
+  await expect(meera.getByPlaceholder(/Write a message/)).toBeVisible();
 
   // Meera has the thread open; everything below arrives without a reload.
-  await meera.goto('/#/messaging');
-  await meera.getByText('Priya Sharma').first().click();
+  await priyaBox.fill(`Opening line ${run}`);
+  await priyaBox.press('Enter');
   await expect(meera.getByText(`Opening line ${run}`, { exact: true })).toBeVisible();
 
+  await priya.waitForTimeout(1600); // typing events are throttled to one per 1.5 s
   await priyaBox.fill(`Typing check ${run}`);
   await expect(meera.getByText('Priya Sharma is typing…')).toBeVisible();
   await priyaBox.press('Enter');

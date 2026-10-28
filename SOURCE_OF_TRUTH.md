@@ -364,6 +364,15 @@ Verified (throwaway DB, API on a spare port): upload returns a signed URL; signe
 
 Not yet covered: a live purge run (the dev machine ran out of memory and Docker stopped during that step; `purgeExpired` is typechecked but unexercised), video seeking after a URL expires, UI click-through of the two export menu items.
 
+### 2026-10-28 — phase 1c merged into `master`
+Merged the five phase 1c branches (deployment, auto-update, search + Redis, media/retention/export, auth) on top of the tests + CI work; migrations `auth_sessions_sso`, `full_text_search`, `retention_hidden_at` applied with `prisma migrate deploy`.
+Fixed during the merge:
+1. Login rate limit keyed by `ip:email` actually used `ip:` only: `@fastify/rate-limit` runs at `onRequest`, before the body is parsed, so every sign-in behind one office IP shared a single 10/min bucket → the login preset runs at `preHandler`. Verified: 12 failed logins with different emails → all 401; the 11th try on one email → 429.
+2. Renderer boot (auth branch) kept the session only when offline; merged with the earlier fix, so 5xx also retries and only 4xx signs out.
+3. Messaging UI test typed into the previous thread's box while `/messaging` auto-opened the most recent thread → opens the 1:1 thread by id; waits out the 1.5 s typing-event throttle before checking the indicator.
+
+Verified on merged `master`: typecheck clean; `pnpm test` 31/31 (incl. auth route + search DB tests); `pnpm test:e2e` 16/16; `pnpm test:ui` 3/3 (Edge); `/health` reports db + storage OK.
+
 ---
 
 ## 13. Windows installer

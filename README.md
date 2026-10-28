@@ -75,8 +75,7 @@ Admins model the company as a **hierarchy DAG** (units may report to several par
 | Git | any recent | `git --version` |
 | Node.js | **20 or newer** (developed on 24) | `node -v` |
 | pnpm | **10 or newer** (developed on 12) | `pnpm -v` (install: `npm i -g pnpm`) |
-| Docker Desktop | running | `docker version` |
-| Python 3 (optional) | for the e2e script | `python --version` |
+| Docker Desktop | running, with **4 GB+ free RAM** (it stops when the machine runs out) | `docker version` |
 
 ### 2. Clone and install
 
@@ -94,7 +93,7 @@ pnpm only runs install scripts for packages allowed in `pnpm-workspace.yaml` (`a
 docker compose up -d
 ```
 
-This starts **Postgres on port 5434** and **S3-compatible storage (SeaweedFS) on port 8334**. These non-default ports avoid clashing with other local projects. If they're taken on your machine, change the host ports in `docker-compose.yml` and in `apps/server/.env`.
+This starts **Postgres on port 5434**, **S3-compatible storage (SeaweedFS) on port 8334** and **Redis on port 6381** (only used when `REDIS_URL` is set). These non-default ports avoid clashing with other local projects. If they're taken on your machine, change the host ports in `docker-compose.yml` and in `apps/server/.env`.
 
 ### 4. Configure the API
 
@@ -135,9 +134,28 @@ The Electron window opens on the sign-in screen. The renderer also works in a no
 ### 7. Verify
 
 ```bash
-pnpm test           # DAG engine, RBAC and media-signature unit tests (13 tests)
 pnpm typecheck      # all packages
+pnpm test           # unit + DB tests (31: DAG, RBAC, media signatures, password policy, auth routes, search)
+pnpm test:e2e       # 16 API scenarios against the running API (keep `pnpm dev` or `pnpm dev:server` running)
+pnpm --filter @nexus/desktop exec playwright install chromium   # once per device
+pnpm test:ui        # 3 Playwright UI tests (two-user realtime messaging included)
 ```
+
+On managed laptops where Playwright's Chromium hangs, use the installed Edge: `PW_CHANNEL=msedge pnpm test:ui` (PowerShell: `$env:PW_CHANNEL='msedge'; pnpm test:ui`).
+
+### Picking up work on another device (already cloned)
+
+```bash
+git pull
+pnpm install                 # new dependencies from other devices
+docker compose up -d
+pnpm db:migrate              # applies migrations added since your last pull (keeps your data)
+pnpm dev
+```
+
+- Compare `apps/server/.env` with `apps/server/.env.example` after pulling; copy over any new variables (the defaults work for local dev).
+- `pnpm db:reset` if your local database is in a bad state (**destroys local data**, re-seeds the demo company).
+- Every push to `master` runs CI (`.github/workflows/ci.yml`), and the Windows installer is attached to the run as the `nexus-installer` artifact.
 
 ---
 
@@ -269,17 +287,25 @@ Legend: ✅ done · 🟡 partly done · ⬜ not started
 - ✅ Minimal premium UI with light / dark / system theme; responsive layout; global error toasts
 - ✅ Windows NSIS installer (unsigned) with configurable server URL
 
-### Phase 1c: hardening 🟡 (in progress)
+### Phase 1c: hardening ✅ (merged 2026-10-28)
 - ✅ Two-user realtime QA (messaging, typing, "seen", presence, unread and notification badges); UI file-picker upload QA (QA'd 2026-10-28, see SOT §12)
-- ⬜ Installer build is flaky on locked-down machines (NSIS uninstaller step killed; see SOT §13)
 - ✅ Automated tests: API e2e suite in the repo (`pnpm test:e2e`, 16 scenarios), Playwright UI tests (`pnpm test:ui`), GitHub Actions CI (`.github/workflows/ci.yml`: typecheck, unit, API e2e, UI; Windows installer artifact on `master`)
-- ✅ Auth hardening: 15-min access tokens + rotating, revocable refresh tokens (`/auth/refresh`, `/auth/logout`; password change/reset and deactivation revoke sessions), rate limiting, password policy (10+ chars, 4 character classes), OIDC SSO for Azure AD / Google Workspace (unit-tested; DB route tests written but not yet run, live IdP round trip needs a real tenant)
+- ✅ Auth hardening: 15-min access tokens + rotating, revocable refresh tokens (`/auth/refresh`, `/auth/logout`; password change/reset and deactivation revoke sessions), rate limiting, password policy (10+ chars, 4 character classes), OIDC SSO for Azure AD / Google Workspace (unit and DB route tests pass; a live IdP round trip needs a real tenant)
 - ✅ Full-text search (Postgres `tsvector` + GIN, `ts_rank`, prefix search-as-you-type), Redis for Socket.IO fan-out + shared presence (opt-in via `REDIS_URL`)
 - ✅ Auto-update (`electron-updater` + generic feed served by the API at `/updates/`), "Restart to update" banner, code-signing wiring (PFX or Azure Trusted Signing). Still needed: a real certificate and an end-to-end update test from a CI-built installer
 - ✅ Signed, expiring media URLs (HMAC, re-signed on every read); retention purge job (defaults await product-owner confirmation, SOT P1); JSON data export (self + admin, audited)
 - ✅ Production deployment guide/scripts: API Docker image, prod compose (Caddy HTTPS/WSS, Postgres, S3, Redis), nightly backups + tested restore, `/health/ready|live`, Prometheus metrics ([`deploy/README.md`](deploy/README.md))
 
-### Phase 2: public release ⬜
+### Still to do before rolling out phase 1 (needs people or accounts, not code)
+- ⬜ **Code-signing certificate** (PFX or Azure Trusted Signing) → add as CI secrets `CSC_LINK` / `CSC_KEY_PASSWORD`
+- ⬜ **SSO tenant**: register the app in Entra ID / Google Workspace and test a live sign-in ([Single sign-on](#single-sign-on-oidc))
+- ⬜ **Product owner**: confirm retention defaults (SOT §1 P1) and data-export scope (P2); answer SOT §11 questions
+- ⬜ **End-to-end auto-update test**: install a CI-built v0.1.0, publish v0.1.1 to the feed, check the banner and restart
+- ⬜ **Production server**: provision the Docker host, DNS and TLS, then follow [`deploy/README.md`](deploy/README.md)
+- ⬜ Native Windows notifications and taskbar badge, group chat in the UI and video upload have not been QA'd in a packaged build
+- 🟡 Local installer builds can fail on locked-down laptops (endpoint security kills the NSIS step, SOT §13); use the CI artifact
+
+### Phase 2: public release ⬜ (next)
 - ⬜ Multi-tenancy (one org per tenant), public sign-up and company pages
 - ⬜ Post visibility levels (public / connections / selected units)
 - ⬜ Web client (the renderer already runs in a browser) and mobile clients
@@ -296,7 +322,9 @@ This repo is set up so that a **new Claude Code session** (desktop app / GUI, CL
 1. Clone the repo and follow [Set up on a new device](#set-up-on-a-new-device).
 2. Open the folder in Claude Code. It automatically reads [`CLAUDE.md`](CLAUDE.md), which points to the source of truth, commands, conventions and gotchas.
 3. Start with a prompt such as:
-   > Read SOURCE_OF_TRUTH.md and the "Project status" section of README.md, then start phase 1c: *(pick an item)*.
+   > Read SOURCE_OF_TRUTH.md and the "Project status" section of README.md, then start phase 2: *(pick an item)*.
+
+   Phase 2 starts with multi-tenancy, which touches every model and route. Do it first, on its own branch, before the other phase 2 items.
 4. When a phase item is finished, tick it in this README **and** update `SOURCE_OF_TRUTH.md` (roadmap §10, QA log §12), so the next device or session sees the true status.
 
 Claude's memory on one device doesn't move to another device, so these two files are the hand-over.

@@ -33,7 +33,9 @@ const email = (req: FastifyRequest) => String((req.body as { email?: unknown } |
 
 /** Per-route `config.rateLimit` presets for sensitive endpoints. */
 export const limits = {
-  login: { max: 10, timeWindow: '1 minute', keyGenerator: (req: FastifyRequest) => `login:${req.ip}:${email(req)}` },
+  // preHandler: the default onRequest hook runs before body parsing, so the email would always be empty
+  // and every sign-in behind one office IP would share a single bucket.
+  login: { max: 10, timeWindow: '1 minute', hook: 'preHandler' as const, keyGenerator: (req: FastifyRequest) => `login:${req.ip}:${email(req)}` },
   refresh: { max: 30, timeWindow: '1 minute', keyGenerator: (req: FastifyRequest) => `refresh:${req.ip}` },
   changePassword: { max: 5, timeWindow: '1 minute' },
   sso: { max: 20, timeWindow: '1 minute', keyGenerator: (req: FastifyRequest) => `sso:${req.ip}` },
