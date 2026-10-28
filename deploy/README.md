@@ -28,7 +28,7 @@ clients ──HTTPS/WSS──▶ caddy :443 ──▶ api :4000 ──▶ postgr
 | **Firewall** | Inbound 443 (and 80 for redirects/ACME) from the client network. Nothing else needs to be exposed. |
 | **Backup storage** | A disk other than the one holding the Docker volumes for `BACKUP_DIR`, and ideally an off-site bucket (`BACKUP_REMOTE`). |
 | **Secrets** | `JWT_SECRET`, `POSTGRES_PASSWORD`, `S3_ACCESS_KEY`/`S3_SECRET_KEY`, `MEDIA_URL_SECRET`: `openssl rand -hex 32`. Keep `.env.prod` readable by root only. |
-| **Optional** | Managed Postgres (`DATABASE_URL`), AWS S3 / MinIO (`S3_ENDPOINT`), an Entra ID / Google OIDC app (`OIDC_*`), a container registry (`NEXUS_API_IMAGE`), Prometheus + a log collector. |
+| **Optional** | Managed Postgres (`DATABASE_URL`), AWS S3 / MinIO (`S3_ENDPOINT`), an Entra ID / Google OIDC app (`OIDC_*`), an SMTP provider (`SMTP_*`, `MAIL_FROM`; needed from phase 2b), a container registry (`NEXUS_API_IMAGE`), Prometheus + a log collector. |
 
 ## 2. First deployment
 
@@ -56,6 +56,8 @@ nexus run --rm api seed
 Then sign in, change the admin password, rename the root unit and delete/deactivate the demo users (Admin → Employees). The seed refuses to run on a non-empty database.
 
 **Clients.** Put `nexus.config.json` next to `Nexus.exe` (or in `%APPDATA%\Nexus`): `{ "apiUrl": "https://nexus.yourcompany.internal" }` (see the root README).
+
+**Email.** Sign-up verification, password reset and invites (phase 2b) are sent over SMTP. Set `SMTP_URL` (or `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`SMTP_SECURE`) and `MAIL_FROM` in `.env.prod`; any provider works (Amazon SES, Postmark, SendGrid, Microsoft 365, your relay). Publish SPF and DKIM (ideally DMARC) for the `MAIL_FROM` domain or mail lands in spam. The host must reach the provider outbound on 465 or 587. Without SMTP the API only logs that a mail was due (no body, since it carries links).
 
 ## 3. Upgrades
 
