@@ -93,7 +93,7 @@ pnpm only runs install scripts for packages allowed in `pnpm-workspace.yaml` (`a
 docker compose up -d
 ```
 
-This starts **Postgres on port 5434**, **S3-compatible storage (SeaweedFS) on port 8334** and **Redis on port 6381** (only used when `REDIS_URL` is set). These non-default ports avoid clashing with other local projects. If they're taken on your machine, change the host ports in `docker-compose.yml` and in `apps/server/.env`.
+This starts **Postgres on port 5434**, **S3-compatible storage (SeaweedFS) on port 8334** **Redis on port 6381** (only used when `REDIS_URL` is set) and **Mailpit** (dev inbox: SMTP on 1026, every mail the API sends shows up at http://localhost:8026). These non-default ports avoid clashing with other local projects. If they're taken on your machine, change the host ports in `docker-compose.yml` and in `apps/server/.env`.
 
 ### 4. Configure the API
 
@@ -307,7 +307,7 @@ Legend: ✅ done · 🟡 partly done · ⬜ not started
 
 ### Phase 2: public release ⬜ (spec ready: SOT §14, decisions D20–D23)
 - ⬜ **2a: tenancy core**: Organization / OrgMember / OrgDomain, `orgId` on company tables (existing data → first org), org-scoped RBAC and DAG caches, `TENANCY=single|multi`, org switcher
-- ⬜ **2b: accounts & companies**: public sign-up + email verification, password reset by email, company creation, domain verification, join policies, company pages + follow, platform admin
+- ⬜ **2b: accounts & companies**: ✅ email service (`lib/mailer.ts` SMTP + `lib/emailTemplates.ts`, Mailpit dev inbox); ⬜ public sign-up + email verification, password reset by email, company creation, domain verification, join policies, company pages + follow, platform admin
 - ⬜ **2c: visibility & feed**: post visibility (public / connections / company / units), visibility-aware feed, search, notifications and media
 - ⬜ **2d: public surface**: public jobs on company pages, public groups/events, web client deployment, abuse controls
 - ⬜ **2e: later**: recommendations, premium, macOS/Linux builds, mobile clients

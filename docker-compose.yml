@@ -1,4 +1,4 @@
-# Postgres + S3-compatible object storage + Redis for local dev.
+# Postgres + S3-compatible object storage + Redis + Mailpit (dev inbox) for local dev.
 # MinIO images are no longer pullable from Docker Hub/quay, so SeaweedFS provides the S3 API (SOT D9).
 # Host ports avoid the common 5432/5433/8333 to coexist with other local stacks.
 services:
@@ -37,6 +37,14 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       retries: 10
+
+  # Dev inbox: catches every mail the API sends (SMTP :1026), web UI at http://localhost:8026.
+  mailpit:
+    image: axllent/mailpit:v1.20
+    container_name: nexus-mailpit
+    ports:
+      - "1026:1025"
+      - "8026:8025"
 
 volumes:
   pgdata:

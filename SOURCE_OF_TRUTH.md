@@ -256,6 +256,7 @@ Full definition: `apps/server/prisma/schema.prisma` (authoritative for fields).
 - Production (`deploy/`): only the Caddy proxy publishes ports (HTTPS + WSS); Postgres, S3, Redis and the API stay on the internal Docker network; the API image runs as the non-root `node` user; `/metrics` is blocked at the proxy; secrets live in `deploy/.env.prod` (git-ignored).
 - **Media URLs are signed** (phase 1c). The database stores canonical URLs (`<PUBLIC_URL>/api/v1/media/<key>`); `GET /media/<key>` requires `?exp=<unix s>&sig=<HMAC-SHA256(key:exp)>` and answers 403 when missing, tampered or expired. A server hook re-signs every media URL in every API response and realtime event (so old rows keep working and `<img>`/`<video>` need no bearer token), and strips signatures from incoming bodies. Secret: `MEDIA_URL_SECRET` (falls back to a key derived from `JWT_SECRET`). Expiry is rounded to `MEDIA_URL_TTL_SECONDS` (default 3600) windows, so a URL is stable (browser-cacheable) for an hour and valid 1–2 h; a page left open longer needs a refetch. Links copied out of the app stop working after that.
 - **Retention** (proposal P1): env `RETENTION_HIDDEN_CONTENT_DAYS` (30), `RETENTION_MESSAGE_DAYS` (0 = keep), `RETENTION_READ_NOTIFICATION_DAYS` (90), `RETENTION_NOTIFICATION_DAYS` (365), `RETENTION_AUDIT_LOG_DAYS` (0), `RETENTION_PURGE_EVERY_HOURS` (24, 0 disables). `Post.hiddenAt`/`Comment.hiddenAt` start the clock. `GET /admin/retention` (`users.manage`) shows the policy and last run.
+- **Email** (groundwork for 2b). `apps/server/src/lib/mailer.ts`: `sendMail({ to, subject, html, text })` over SMTP (nodemailer), configured by `SMTP_URL` (`smtp://` STARTTLS when offered, `smtps://` implicit TLS) or `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`SMTP_SECURE`, sender `MAIL_FROM`, connect/greeting/socket timeouts `SMTP_TIMEOUT_MS` (10 s). Recipients must be single plain addresses and the subject one line (no header injection). Failures throw `MailError` (`INVALID_MAIL` | `SEND_FAILED`, `retryable` for timeouts, connection errors and 4xx replies). No SMTP configured: the mail is logged instead (body omitted when `NODE_ENV=production`, since it carries links). `lib/emailTemplates.ts`: verify email, reset password, company invite, notification digest; each returns html + text, HTML-escapes every value, keeps subjects on one line and only accepts absolute http(s) links. Dev inbox: Mailpit in `docker-compose.yml` (SMTP :1026, UI :8026). Production: SPF + DKIM for the `MAIL_FROM` domain (`deploy/README.md`).
 - **Data export** (proposal P2): `GET /users/me/export` (*Me* menu → Export my data) and `GET /admin/users/:id/export` (`users.manage`, Admin → Employees → ⋯). Covers profile, memberships, experience/education/skills, posts, comments, reactions, saved posts, articles, own messages (with conversation participants by name), connections, follows, groups, events, job applications. Audited as `user.export` with `{ self }`.
 
 ---
@@ -294,6 +295,10 @@ The renderer also runs in a normal browser at http://localhost:5183 (web bridge 
 ---
 
 ## 12. QA log
+
+### 2026-10-29 — phase 2b groundwork: email service
+- Added `lib/mailer.ts` (nodemailer SMTP, env config, timeouts, `MailError`, log fallback) and `lib/emailTemplates.ts` (verify, reset, invite, digest). Mailpit added to dev `docker-compose.yml` (SMTP :1026, UI :8026).
+- `pnpm typecheck` clean; `pnpm test` 32 pass / 5 skipped (existing DB tests), including a real send through Mailpit found via its API. Not yet wired to any route (2b sign-up/verification/reset flows still to build).
 
 ### 2026-10-28 — production deployment stack (phase 1c)
 Verified on Docker Desktop 29.1 (Windows), prod stack on 8088/8443 next to the dev stack:
