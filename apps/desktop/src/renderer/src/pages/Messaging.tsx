@@ -56,7 +56,12 @@ function Thread({ id }: { id: string }) {
   const msgs = useQuery({ queryKey: ['messages', id], queryFn: () => api.get(`/conversations/${id}/messages?limit=50`) });
 
   const markRead = () => api.post(`/conversations/${id}/read`).then(() => qc.invalidateQueries({ queryKey: ['conversations'] }));
-  useEffect(() => { markRead(); }, [id, msgs.data?.items.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Only while the window is focused: a minimized or background window must not report "seen" (keeps the badge and toast honest).
+  useEffect(() => {
+    if (document.hasFocus()) markRead();
+    window.addEventListener('focus', markRead);
+    return () => window.removeEventListener('focus', markRead);
+  }, [id, msgs.data?.items.length]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: 'end' });
   }, [msgs.data]);

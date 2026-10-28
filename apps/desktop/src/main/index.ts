@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, nativeTheme, Notification, safeStorage, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, nativeImage, nativeTheme, Notification, safeStorage, shell } from 'electron';
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -161,8 +161,9 @@ ipcMain.on('notify', (_e, payload: { title: string; body: string; link?: string 
   n.show();
 });
 
-ipcMain.on('badge', (_e, count: number) => {
-  app.setBadgeCount(count);
+ipcMain.on('badge', (_e, count: number, icon: string | null) => {
+  app.setBadgeCount(count); // macOS / Linux only
+  if (process.platform === 'win32') win?.setOverlayIcon(icon ? nativeImage.createFromDataURL(icon) : null, count > 0 ? `${count} unread` : '');
   win?.setTitle(count > 0 ? `(${count}) Nexus` : 'Nexus');
 });
 
