@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Briefcase, Camera, ChevronRight, GraduationCap, MapPin, MessageSquareText, Pencil, Plus, Trash2, UserCheck, UserPlus } from 'lucide-react';
+import { IMAGE_ACCEPT } from '@nexus/shared';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { monthYear } from '@/lib/format';
@@ -137,7 +138,7 @@ export default function Profile() {
             {isMe && (
               <label className="absolute right-4 top-4 cursor-pointer rounded-full bg-white p-2 text-brand-500 shadow" title="Change cover">
                 <Camera size={18} />
-                <input type="file" hidden accept="image/*" onChange={(e) => uploadImage('coverUrl', e.target.files)} />
+                <input type="file" hidden accept={IMAGE_ACCEPT} onChange={(e) => uploadImage('coverUrl', e.target.files)} />
               </label>
             )}
           </div>
@@ -145,7 +146,7 @@ export default function Profile() {
             <div className="-mt-20 flex items-end justify-between">
               <label className={`rounded-full border-4 border-white ${isMe ? 'cursor-pointer' : ''}`} title={isMe ? 'Change photo' : undefined}>
                 <Avatar user={u} size={152} />
-                {isMe && <input type="file" hidden accept="image/*" onChange={(e) => uploadImage('avatarUrl', e.target.files)} />}
+                {isMe && <input type="file" hidden accept={IMAGE_ACCEPT} onChange={(e) => uploadImage('avatarUrl', e.target.files)} />}
               </label>
               {isMe && <button className="rounded-full p-2 hover:bg-zinc-100" onClick={() => setModal('intro')}><Pencil size={20} /></button>}
             </div>

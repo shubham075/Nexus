@@ -145,6 +145,8 @@ pnpm typecheck      # all packages
 | `pnpm db:seed` | Seed an **empty** DB (skips if users exist) |
 | `pnpm db:reset` | Drop, re-migrate and re-seed (**destroys local data**) |
 | `pnpm test` | Server unit tests |
+| `pnpm test:e2e` | API end-to-end suite against the running API (`pnpm dev:server` first; re-runnable on the same DB) |
+| `pnpm test:ui` | Playwright UI tests in a browser (starts the API and `dev:web` renderer if not running; `PW_CHANNEL=msedge` uses installed Edge) |
 | `pnpm typecheck` | TypeScript across the monorepo |
 | `pnpm build:win` | Windows installer → `apps/desktop/release/` |
 
@@ -179,7 +181,7 @@ The demo hierarchy includes multi-parent units: **Mobile Squad** reports to both
 pnpm build:win
 ```
 
-Output: `apps/desktop/release/Nexus-Setup-<version>.exe` (NSIS, x64, about 80 MB). Bump `version` in `apps/desktop/package.json` for each release.
+Output: `apps/desktop/release/Nexus-Setup-<version>.exe` (NSIS, x64, about 25 MB). Bump `version` in `apps/desktop/package.json` for each release.
 
 - **First build** downloads Electron and the NSIS tools (a few minutes). Later builds take 1–2 minutes.
 - **"Cannot create symbolic link" error:** turn on Windows **Developer Mode**, or see section 13 of `SOURCE_OF_TRUTH.md` for the one-time cache workaround.
@@ -220,9 +222,10 @@ Legend: ✅ done · 🟡 partly done · ⬜ not started
 - ✅ Minimal premium UI with light / dark / system theme; responsive layout; global error toasts
 - ✅ Windows NSIS installer (unsigned) with configurable server URL
 
-### Phase 1c: hardening ⬜ (next)
-- ⬜ Two-user realtime QA (messaging and notifications across two live clients); UI file-picker upload QA
-- ⬜ Automated tests: move the API e2e script into the repo + CI (GitHub Actions); UI tests (Playwright)
+### Phase 1c: hardening 🟡 (in progress)
+- ✅ Two-user realtime QA (messaging, typing, "seen", presence, unread and notification badges); UI file-picker upload QA (QA'd 2026-10-28, see SOT §12)
+- ⬜ Installer build is flaky on locked-down machines (NSIS uninstaller step killed; see SOT §13)
+- ✅ Automated tests: API e2e suite in the repo (`pnpm test:e2e`, 16 scenarios), Playwright UI tests (`pnpm test:ui`), GitHub Actions CI (`.github/workflows/ci.yml`: typecheck, unit, API e2e, UI; Windows installer artifact on `master`)
 - ⬜ SSO (Azure AD / Google Workspace OIDC), refresh tokens, rate limiting, password policy
 - ⬜ Full-text search (Postgres `tsvector`), Redis for Socket.IO fan-out
 - ⬜ Auto-update (`electron-updater` + internal feed), code-signing certificate

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Permission } from '@nexus/shared';
-import { api, initApi, setToken, setUnauthorizedHandler } from './api';
+import { api, ApiError, initApi, setToken, setUnauthorizedHandler } from './api';
 import { connectSocket, disconnectSocket } from './socket';
 
 export interface Me {
@@ -32,12 +32,18 @@ export const useAuth = create<AuthState>((set, get) => ({
   boot: async () => {
     setUnauthorizedHandler(() => get().logout());
     const token = await initApi();
-    if (token) {
+    // Keep the session while the server is unreachable or failing (offline, restarting, DB down); only a rejected token signs out.
+    for (let attempt = 0; token; attempt++) {
       try {
         set({ me: await api.get<Me>('/auth/me') });
         connectSocket();
-      } catch {
-        await setToken(null);
+        break;
+      } catch (e) {
+        if (!(e instanceof ApiError) || (e.status !== 0 && e.status < 500)) {
+          await setToken(null);
+          break;
+        }
+        await new Promise((r) => setTimeout(r, Math.min(500 * 2 ** attempt, 5000)));
       }
     }
     set({ ready: true });

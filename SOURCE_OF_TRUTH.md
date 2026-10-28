@@ -248,7 +248,7 @@ The renderer also runs in a normal browser at http://localhost:5183 (web bridge 
 |-------|-------|
 | 1a ✅ built | Monorepo, infra, DAG engine, RBAC, auth, admin hierarchy/roles UI, feed/posts/reactions/comments/reposts/polls, profiles, connections, messaging, notifications |
 | 1b ✅ built (needs QA) | Groups, events, articles/newsletters, jobs, search, moderation queue, analytics. Remaining: Windows installer signing + auto-update |
-| 1c | SSO (Azure AD / Google), refresh tokens, full-text search, Redis, E2E tests |
+| 1c (in progress) | ✅ realtime/upload QA, E2E + UI tests, CI. In parallel branches: SSO (Azure AD / Google), refresh tokens, rate limiting, password policy · full-text search, Redis · authenticated media, retention, export · auto-update, signing · production deployment |
 | 2 (public) | Multi-tenancy (org per tenant), public sign-up, post visibility levels (public/connections/nodes), premium, recommendations ML, web + mobile clients |
 
 ---
@@ -282,6 +282,23 @@ Verified: desktop + server typecheck clean; 7/7 DAG/RBAC unit tests; 45-step API
 
 Not yet covered: multi-user realtime in two live Electron windows, file upload via the UI picker, Windows installer build.
 
+### 2026-10-28 — phase 1c: two-user realtime + UI upload pass
+Two live clients (Priya at `localhost:5183`, Rahul at `[::1]:5183`; separate origins = separate sessions) against `pnpm dev`.
+Fixed:
+1. Restarting or briefly losing the API signed users out: boot cleared the stored token on *any* `/auth/me` error → only a rejected token (4xx) signs out; network errors and 5xx (e.g. DB down) retry with backoff.
+2. "X is typing…" lingered after X's message arrived, and stacked timers could clear a newer typing state → cleared on the typer's `message:new`, one timer per thread.
+3. "Seen" rendered at the end of the thread (under the other person's reply) → shown under my last message.
+4. Uploads outside the post composer (message attachment, avatar/cover, event/article covers, article images) failed silently, and `accept="image/*"` let through types the server rejects (SVG, BMP, HEIC) → one allow-list `UPLOAD_TYPES` in `@nexus/shared` used by the server and every picker; `api.upload` rejects other types with a clear message; a global `unhandledrejection` handler toasts API errors from non-React-Query calls. Message file input resets so the same file can be re-sent.
+
+Verified: 1:1 conversation create, realtime delivery both ways, typing indicator, "seen", presence ("Active now"), Messaging and Notifications badges + window-title count update live (@mention notification), image attachment delivered live to the other client, avatar upload updates profile + header, composer image + PDF upload, SVG rejected with a toast. Typecheck clean, 7/7 unit tests.
+
+Not yet covered: native Windows notifications and taskbar badge (Electron-only; web bridge no-ops), group chat in the UI, video upload.
+
+### 2026-10-28 — phase 1c: automated tests + CI
+- `apps/server/e2e/api.e2e.ts` (`pnpm test:e2e`): replaces the old out-of-repo Python script. 16 scenarios against a live API: auth, hierarchy invariants (CYCLE/SELF_EDGE/DUPLICATE_EDGE/LAST_PARENT → 409), invite + forced password change, custom role grant/revoke, posts (mentions, hashtags, reactions, one-level replies, edit, save, repost, poll vote change), network, group chat + unread/read, private groups, events, articles/newsletters, jobs pipeline, scoped moderation, search, analytics/audit, media allow-list, deactivation. Each run uses unique names, so it re-runs on the same DB.
+- `apps/desktop/e2e/app.spec.ts` (`pnpm test:ui`, Playwright 1.64.1): sign-in form, composer post, and two live clients for realtime messaging (delivery, typing, "seen", picker upload + rejected type, live unread badge). The renderer is served by plain Vite (`pnpm --filter @nexus/desktop dev:web`, `vite.web.config.ts`) so no Electron is needed.
+- `.github/workflows/ci.yml`: Ubuntu job (compose Postgres + S3, typecheck, unit, migrate + seed, API e2e, UI tests, report artifact on failure); Windows job on `master` builds the NSIS installer as an artifact (sidesteps the local AV issue in §13; signs when `CSC_LINK` secrets exist).
+
 ---
 
 ## 13. Windows installer
@@ -292,4 +309,6 @@ pnpm build:win        # → apps/desktop/release/Nexus-Setup-<version>.exe (NSIS
 - **Point installs at your server**: put `nexus.config.json` next to `Nexus.exe` (IT-wide) or in `%APPDATA%\Nexus` (per user): `{ "apiUrl": "https://nexus.yourcompany.internal" }`. Falls back to `NEXUS_API_URL`, then `http://localhost:4000`.
 - **Unsigned**: Windows SmartScreen shows "unknown publisher" until a code-signing certificate is added (`CSC_LINK` / `CSC_KEY_PASSWORD`).
 - **First build on a machine without symlink rights** fails extracting electron-builder's `winCodeSign` (macOS symlinks). Fix once: enable Windows Developer Mode, or extract `%LOCALAPPDATA%\electron-builder\Cache\winCodeSign\*.7z` into `winCodeSign-2.6.0` in the same folder (the two symlink errors are harmless).
+- **NSIS step killed (`Exit code: null. Command failed: …\Nexus-Setup-<v>.exe`)**: electron-builder runs the half-built installer once to produce the uninstaller. On managed machines endpoint security can kill that process when Node launches it (it runs fine by hand). Seen 2026-10-28 on 2 of 3 runs; one run passed. Fix: exclude `apps/desktop/release` from AV scanning, or build on CI / a non-managed machine. When this fails, `release/Nexus-Setup-*.exe` is a broken ~200 KB stub, so don't ship it.
+- Installer is ~25 MB (no `node_modules` ship; everything is bundled by electron-vite).
 - Auto-update is not wired yet (phase 1c: `electron-updater` + an internal update feed).

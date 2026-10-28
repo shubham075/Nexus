@@ -10,12 +10,14 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "build:win": "electron-vite build && electron-builder --win",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "dev:web": "vite --config vite.web.config.ts",
+    "test:ui": "playwright test"
   },
-  "dependencies": {},
   "devDependencies": {
     "@dagrejs/dagre": "1.1.4",
     "@nexus/shared": "workspace:*",
+    "@playwright/test": "1.64.1",
     "@tanstack/react-query": "5.60.5",
     "@types/node": "22.9.0",
     "@types/react": "18.3.12",

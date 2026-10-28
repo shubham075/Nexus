@@ -8,5 +8,5 @@
     "baseUrl": ".",
     "paths": { "@/*": ["src/renderer/src/*"] }
   },
-  "include": ["src", "electron.vite.config.ts"]
+  "include": ["src", "e2e", "electron.vite.config.ts", "vite.web.config.ts", "playwright.config.ts"]
 }

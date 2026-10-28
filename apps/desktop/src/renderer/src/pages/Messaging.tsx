@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MessageSquareText, Paperclip, PenSquare, Send, FileText } from 'lucide-react';
+import { UPLOAD_ACCEPT } from '@nexus/shared';
 import { api } from '@/lib/api';
 import { useAuth, useCan } from '@/lib/auth';
 import { ago, dateLong } from '@/lib/format';
@@ -59,15 +60,25 @@ function Thread({ id }: { id: string }) {
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: 'end' });
   }, [msgs.data]);
-  useEffect(
-    () =>
-      onSocket('typing', (t) => {
-        if (t.conversationId !== id) return;
-        setTyping(t.userId);
-        setTimeout(() => setTyping(null), 2500);
-      }),
-    [id],
-  );
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const offTyping = onSocket('typing', (t) => {
+      if (t.conversationId !== id) return;
+      setTyping(t.userId);
+      clearTimeout(timer);
+      timer = setTimeout(() => setTyping(null), 2500);
+    });
+    // The typer's message arriving ends their typing state immediately.
+    const offMessage = onSocket('message:new', (m) => {
+      if (m.conversationId !== id) return;
+      setTyping((cur) => (cur === m.senderId ? null : cur));
+    });
+    return () => {
+      clearTimeout(timer);
+      offTyping();
+      offMessage();
+    };
+  }, [id]);
 
   const send = useMutation({
     mutationFn: (attachment?: { url: string; name: string; mime: string }) => api.post(`/conversations/${id}/messages`, { body, attachment }),
@@ -118,11 +129,11 @@ function Thread({ id }: { id: string }) {
                     <a href={m.attachmentUrl} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 text-sm hover:bg-zinc-50"><FileText size={16} /> {m.attachmentName}</a>
                   )
                 )}
+                {m.id === lastMine?.id && seenBy.length > 0 && <div className="mt-0.5 text-right text-xs text-zinc-500">Seen</div>}
               </div>
             </div>
           );
         })}
-        {seenBy.length > 0 && <div className="text-right text-xs text-zinc-500">Seen</div>}
         {typingUser && <div className="text-xs italic text-zinc-500">{typingUser.name} is typing…</div>}
         <div ref={bottom} />
       </div>
@@ -144,7 +155,16 @@ function Thread({ id }: { id: string }) {
           />
           <div className="mt-2 flex items-center justify-between">
             <button className="btn-ghost px-2" title="Attach file" onClick={() => fileRef.current?.click()}><Paperclip size={18} /></button>
-            <input ref={fileRef} type="file" hidden accept="image/*,application/pdf,video/mp4" onChange={(e) => attach(e.target.files)} />
+            <input
+              ref={fileRef}
+              type="file"
+              hidden
+              accept={UPLOAD_ACCEPT}
+              onChange={(e) => {
+                attach(e.target.files);
+                e.target.value = '';
+              }}
+            />
             <button className="btn-primary" disabled={!body.trim() || send.isPending} onClick={() => send.mutate(undefined)}><Send size={14} /> Send</button>
           </div>
         </div>

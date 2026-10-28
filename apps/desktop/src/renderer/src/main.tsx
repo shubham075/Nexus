@@ -5,8 +5,14 @@ import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@ta
 import './lib/webBridge';
 import App from './App';
 import { toast } from './lib/toast';
+import { ApiError } from './lib/api';
 import './index.css';
 import './lib/theme';
+
+// API calls made outside React Query (e.g. file pickers) would otherwise fail silently.
+window.addEventListener('unhandledrejection', (e) => {
+  if (e.reason instanceof ApiError && e.reason.status !== 401) toast(e.reason.message);
+});
 
 const queryClient = new QueryClient({
   // Every failed load or action surfaces as a toast instead of a silent spinner/no-op.

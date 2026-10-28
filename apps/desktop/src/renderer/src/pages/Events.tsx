@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CalendarDays, MapPin, Plus, Video } from 'lucide-react';
 import { format } from 'date-fns';
+import { IMAGE_ACCEPT } from '@nexus/shared';
 import { api } from '@/lib/api';
 import { useCan } from '@/lib/auth';
 import { Empty, ErrorText, Modal, Spinner, Tabs } from '@/components/ui';
@@ -30,7 +31,7 @@ export function EventForm({ initial, onClose }: { initial?: any; onClose: () => 
       <div className="space-y-3">
         <label className="block cursor-pointer overflow-hidden rounded-lg border border-dashed border-zinc-300 text-center text-sm text-zinc-500">
           {cover ? <img src={cover} className="h-36 w-full object-cover" /> : <div className="py-8">Upload cover image</div>}
-          <input type="file" hidden accept="image/*" onChange={async (e) => { if (e.target.files?.[0]) setCover((await api.upload([e.target.files[0]]))[0].url); }} />
+          <input type="file" hidden accept={IMAGE_ACCEPT} onChange={async (e) => { if (e.target.files?.[0]) setCover((await api.upload([e.target.files[0]]))[0].url); }} />
         </label>
         <div className="flex gap-2">
           <button type="button" className={`chip ${f.isOnline ? 'chip-active' : ''}`} onClick={() => setF({ ...f, isOnline: true })}>Online</button>

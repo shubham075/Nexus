@@ -10,6 +10,7 @@
     "db:seed": "tsx --env-file=.env prisma/seed.ts",
     "db:reset": "prisma migrate reset --force",
     "test": "tsx --test src/**/*.test.ts",
+    "test:e2e": "tsx --env-file=.env --test e2e/api.e2e.ts",
     "typecheck": "tsc --noEmit"
   },
   "prisma": { "seed": "tsx --env-file=.env prisma/seed.ts" },

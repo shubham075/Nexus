@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ImagePlus } from 'lucide-react';
+import { IMAGE_ACCEPT } from '@nexus/shared';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { ErrorText } from '@/components/ui';
@@ -103,7 +104,7 @@ export default function ArticleEditor() {
         </div>
         <label className="block cursor-pointer border-b border-zinc-200 bg-zinc-50 text-center text-sm text-zinc-500">
           {cover ? <img src={cover} className="max-h-72 w-full object-cover" /> : <div className="flex flex-col items-center py-12"><ImagePlus size={32} /> Add a cover image</div>}
-          <input type="file" hidden accept="image/*" onChange={async (e) => { if (e.target.files?.[0]) setCover((await api.upload([e.target.files[0]]))[0].url); }} />
+          <input type="file" hidden accept={IMAGE_ACCEPT} onChange={async (e) => { if (e.target.files?.[0]) setCover((await api.upload([e.target.files[0]]))[0].url); }} />
         </label>
         <div className="p-8">
           <ErrorText error={publish.error} />
@@ -116,7 +117,7 @@ export default function ArticleEditor() {
             <>
               <input className="mb-4 w-full text-3xl font-bold outline-none placeholder:text-zinc-400" placeholder="Headline" value={title} onChange={(e) => setTitle(e.target.value)} />
               <textarea className="min-h-[420px] w-full resize-y text-[16px] leading-7 outline-none" placeholder="Write here. Markdown supported: # Heading, **bold**, *italic*, - list, > quote, [link](https://…)" value={body} onChange={(e) => setBody(e.target.value)} />
-              <label className="btn-ghost cursor-pointer"><ImagePlus size={16} /> Insert image<input type="file" hidden accept="image/*" onChange={(e) => insertImage(e.target.files)} /></label>
+              <label className="btn-ghost cursor-pointer"><ImagePlus size={16} /> Insert image<input type="file" hidden accept={IMAGE_ACCEPT} onChange={(e) => insertImage(e.target.files)} /></label>
             </>
           )}
         </div>

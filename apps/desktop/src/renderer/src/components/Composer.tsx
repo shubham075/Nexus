@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { BarChart3, FileText, Image, PartyPopper, Trash2, X, Newspaper, CalendarPlus } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { UPLOAD_ACCEPT } from '@nexus/shared';
 import { api } from '@/lib/api';
 import { useAuth, useCan } from '@/lib/auth';
 import { Avatar, ErrorText, Modal } from './ui';
@@ -124,7 +125,7 @@ export function ComposerModal({ initialMode = 'text', groupId, repostOf, onClose
                 <button className={`btn-ghost px-2 ${mode === 'celebrate' ? 'bg-zinc-100' : ''}`} title="Celebrate" onClick={() => setMode(mode === 'celebrate' ? 'text' : 'celebrate')}><PartyPopper size={20} /></button>
               </>
             )}
-            <input ref={fileRef} type="file" multiple hidden accept="image/*,video/mp4,video/webm,application/pdf" onChange={(e) => onFiles(e.target.files)} />
+            <input ref={fileRef} type="file" multiple hidden accept={UPLOAD_ACCEPT} onChange={(e) => onFiles(e.target.files)} />
           </div>
           <button className="btn-primary" disabled={!canSubmit} onClick={() => submit.mutate()}>
             {submit.isPending ? 'Posting…' : 'Post'}

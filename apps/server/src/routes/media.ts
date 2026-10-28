@@ -1,24 +1,20 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
+import { UPLOAD_TYPES } from '@nexus/shared';
 import { badRequest, notFound } from '../lib/http';
 import { authenticate } from '../lib/auth';
 import { getObject, mediaUrl, putObject } from '../lib/storage';
-
-const ALLOWED = /^(image\/(png|jpeg|gif|webp)|video\/(mp4|webm)|application\/pdf)$/;
-const EXT: Record<string, string> = {
-  'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp',
-  'video/mp4': 'mp4', 'video/webm': 'webm', 'application/pdf': 'pdf',
-};
 
 export const mediaRoutes: FastifyPluginAsync = async (app) => {
   /** Upload one or more files → [{ url, mimeType, fileName }] (SOT §8 upload rules). */
   app.post('/', { preHandler: authenticate }, async (req) => {
     const out: { url: string; mimeType: string; fileName: string }[] = [];
     for await (const part of req.files()) {
-      if (!ALLOWED.test(part.mimetype)) throw badRequest(`File type not allowed: ${part.mimetype}`);
+      const ext = UPLOAD_TYPES[part.mimetype];
+      if (!ext) throw badRequest(`File type not allowed: ${part.mimetype}`);
       const buf = await part.toBuffer();
-      const key = `${new Date().toISOString().slice(0, 7)}/${randomUUID()}.${EXT[part.mimetype]}`;
+      const key = `${new Date().toISOString().slice(0, 7)}/${randomUUID()}.${ext}`;
       await putObject(key, buf, part.mimetype);
       out.push({ url: mediaUrl(key), mimeType: part.mimetype, fileName: part.filename });
     }

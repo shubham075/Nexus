@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Typecheck, unit, API e2e, UI tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # The UI tests serve the renderer with plain Vite; the Electron binary is not needed here.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Start Postgres + S3 (same ports as local dev)
+        run: docker compose up -d --wait postgres && docker compose up -d s3
+      - run: cp apps/server/.env.example apps/server/.env
+
+      - run: pnpm typecheck
+      - run: pnpm test
+
+      - name: Migrate and seed a fresh database
+        working-directory: apps/server
+        run: npx prisma migrate deploy && pnpm db:seed
+
+      - name: Start the API
+        run: |
+          pnpm --filter @nexus/server start > api.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:4000/health && exit 0; sleep 1; done
+          cat api.log; exit 1
+
+      - run: pnpm test:e2e
+
+      - run: pnpm --filter @nexus/desktop exec playwright install --with-deps chromium
+      - run: pnpm test:ui
+
+      - name: Upload logs and Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-output
+          path: |
+            api.log
+            apps/desktop/playwright-report/
+            apps/desktop/test-results/
+          retention-days: 7
+
+  installer:
+    name: Windows installer
+    runs-on: windows-latest
+    needs: test
+    if: github.event_name != 'pull_request'
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Unsigned unless CSC_LINK / CSC_KEY_PASSWORD secrets are configured (SOT §13).
+      - run: pnpm build:win
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nexus-installer
+          path: |
+            apps/desktop/release/Nexus-Setup-*.exe
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/latest.yml
+          if-no-files-found: error
+          retention-days: 30

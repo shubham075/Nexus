@@ -1,4 +1,4 @@
-import { API_PREFIX } from '@nexus/shared';
+import { API_PREFIX, UPLOAD_TYPES } from '@nexus/shared';
 
 let baseUrl = 'http://localhost:4000';
 let token: string | null = null;
@@ -55,7 +55,9 @@ export const api = {
   post: <T = any>(p: string, b: unknown = {}) => request<T>('POST', p, b),
   patch: <T = any>(p: string, b: unknown) => request<T>('PATCH', p, b),
   del: <T = any>(p: string) => request<T>('DELETE', p),
-  upload: (files: File[]) => {
+  upload: async (files: File[]) => {
+    const bad = files.find((f) => !UPLOAD_TYPES[f.type]);
+    if (bad) throw new ApiError(400, 'BAD_REQUEST', `${bad.name}: only PNG, JPEG, GIF, WebP, MP4, WebM and PDF files can be uploaded.`);
     const fd = new FormData();
     for (const f of files) fd.append('file', f, f.name);
     return request<{ url: string; mimeType: string; fileName: string }[]>('POST', '/media', fd, true);
