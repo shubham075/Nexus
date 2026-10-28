@@ -4,6 +4,7 @@ import { prisma } from '../lib/db';
 import { forbidden, notFound, parse } from '../lib/http';
 import { authenticate, requirePerm, uid } from '../lib/auth';
 import { notify, userLite } from '../lib/notify';
+import { visibleIn } from '../lib/org';
 
 const articleBody = z.object({
   title: z.string().trim().min(1).max(150),
@@ -68,6 +69,7 @@ export const articleRoutes: FastifyPluginAsync = async (app) => {
   app.get('/newsletters/all', async (req) => {
     const me = uid(req);
     const rows = await prisma.newsletter.findMany({
+      where: visibleIn(req.orgId),
       orderBy: { createdAt: 'desc' },
       include: { owner: { select: userLite }, _count: { select: { subscribers: true, articles: true } }, subscribers: { where: { userId: me } } },
     });
@@ -76,11 +78,14 @@ export const articleRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/newsletters', { preHandler: requirePerm('article.publish') }, async (req) => {
     const b = parse(z.object({ title: z.string().trim().min(1).max(100), description: z.string().max(500).nullish() }), req.body);
-    return prisma.newsletter.create({ data: { ...b, ownerId: uid(req) } });
+    // Owned by the active org (company-internal); personal newsletters (orgId null) arrive with phase 2c.
+    return prisma.newsletter.create({ data: { ...b, orgId: req.orgId, ownerId: uid(req) } });
   });
 
   app.post<{ Params: { id: string } }>('/newsletters/:id/subscribe', async (req) => {
+    if (!(await prisma.newsletter.count({ where: { id: req.params.id, ...visibleIn(req.orgId) } }))) throw notFound('Newsletter');
     const key = { newsletterId: req.params.id, userId: uid(req) };
+
     const existing = await prisma.newsletterSubscription.findUnique({ where: { newsletterId_userId: key } });
     if (existing) await prisma.newsletterSubscription.delete({ where: { newsletterId_userId: key } });
     else await prisma.newsletterSubscription.create({ data: key });

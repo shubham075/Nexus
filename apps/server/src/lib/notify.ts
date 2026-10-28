@@ -14,6 +14,7 @@ export async function notify(n: { recipientId: string; actorId?: string | null; 
   emitToUser(n.recipientId, 'notification:new', row);
 }
 
-export function audit(actorId: string, action: string, target?: string, meta?: Prisma.InputJsonValue) {
-  return prisma.auditLog.create({ data: { actorId, action, target, meta } });
+/** Audit entries belong to the org the action happened in (SOT §14.2). */
+export function audit(orgId: string, actorId: string, action: string, target?: string, meta?: Prisma.InputJsonValue) {
+  return prisma.auditLog.create({ data: { orgId, actorId, action, target, meta } });
 }

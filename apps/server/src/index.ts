@@ -37,6 +37,7 @@ const app = Fastify({
   trustProxy: env.trustProxy,
 });
 
+app.decorateRequest('orgId', null); // set per request by authenticate (lib/org.ts)
 await app.register(cors, { origin: true, credentials: true });
 await app.register(jwt, { secret: env.jwtSecret, sign: { expiresIn: env.accessTokenTtl } });
 await registerRateLimit(app);

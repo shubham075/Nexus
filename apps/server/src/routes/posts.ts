@@ -8,6 +8,7 @@ import { assertCan, authenticate, requirePerm, uid } from '../lib/auth';
 import { audit, notify, userLite } from '../lib/notify';
 import { extractHashtags, extractMentions, plain } from '../lib/text';
 import { canOverUser } from '../rbac';
+import { isOrgMember, orgOf, postsVisibleIn, visibleIn } from '../lib/org';
 import { connectionIds } from './network';
 
 const mediaItem = z.object({ url: z.string().url(), mimeType: z.string(), fileName: z.string().nullish() });
@@ -84,8 +85,8 @@ export async function serializePosts(rows: PostRow[]) {
   }));
 }
 
-async function loadPost(id: string, viewer: string) {
-  const post = await prisma.post.findUnique({ where: { id }, include: postInclude(viewer) });
+async function loadPost(id: string, viewer: string, orgId: string | null) {
+  const post = await prisma.post.findFirst({ where: { id, ...postsVisibleIn(orgId) }, include: postInclude(viewer) });
   if (!post || post.isHidden) throw notFound('Post');
   return (await serializePosts([post]))[0];
 }
@@ -116,7 +117,7 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
   app.get<{ Querystring: { cursor?: string; limit?: string; filter?: string } }>('/feed', async (req) => {
     const me = uid(req);
     const { limit, ...args } = pageArgs(req.query, 10);
-    const base: Prisma.PostWhereInput = { isHidden: false, groupId: null };
+    const base: Prisma.PostWhereInput = { isHidden: false, groupId: null, ...postsVisibleIn(req.orgId) };
     const filter = req.query.filter;
     let where: Prisma.PostWhereInput = base;
     if (filter === 'network') {
@@ -154,7 +155,7 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
     const [rows, h] = await Promise.all([
       prisma.post.findMany({
         ...args,
-        where: { isHidden: false, hashtags: { some: { hashtag: { tag } } } },
+        where: { isHidden: false, hashtags: { some: { hashtag: { tag } } }, ...postsVisibleIn(req.orgId) },
         orderBy: { createdAt: 'desc' },
         include: postInclude(me),
       }),
@@ -207,7 +208,7 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
     const { limit, ...args } = pageArgs(req.query, 10);
     const rows = await prisma.post.findMany({
       ...args,
-      where: { authorId: req.params.userId, isHidden: false, groupId: null },
+      where: { authorId: req.params.userId, isHidden: false, groupId: null, ...postsVisibleIn(req.orgId) },
       orderBy: { createdAt: 'desc' },
       include: postInclude(me),
     });
@@ -215,16 +216,18 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
     return { items: await serializePosts(items), nextCursor };
   });
 
-  app.get<{ Params: { id: string } }>('/:id', async (req) => loadPost(req.params.id, uid(req)));
+  app.get<{ Params: { id: string } }>('/:id', async (req) => loadPost(req.params.id, uid(req), req.orgId));
 
   app.post('/', { preHandler: requirePerm('post.create') }, async (req) => {
     const me = uid(req);
     const b = parse(createBody, req.body);
     if (!b.body.trim() && !b.media.length && !b.poll && !b.repostOfId && !b.celebration) throw badRequest('Post is empty');
     if (b.groupId) {
-      const m = await prisma.groupMember.findUnique({ where: { groupId_userId: { groupId: b.groupId, userId: me } } });
+      const m = await prisma.groupMember.findFirst({ where: { groupId: b.groupId, userId: me, group: visibleIn(req.orgId) } });
       if (!m || m.role === 'PENDING') throw forbidden('Join the group to post');
     }
+    if (b.eventId && !(await prisma.event.count({ where: { id: b.eventId, ...visibleIn(req.orgId) } }))) throw notFound('Event');
+    if (b.jobId && !(await prisma.job.count({ where: { id: b.jobId, ...visibleIn(req.orgId) } }))) throw notFound('Job');
     let repostOf: { id: string; authorId: string } | null = null;
     if (b.repostOfId) {
       repostOf = await prisma.post.findUnique({ where: { id: b.repostOfId }, select: { id: true, authorId: true, repostOfId: true } }).then((p) =>
@@ -269,7 +272,7 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
       const actor = await prisma.user.findUniqueOrThrow({ where: { id: me }, select: { name: true } });
       await notify({ recipientId: repostOf.authorId, actorId: me, type: 'REPOST', text: `${actor.name} reposted your post`, link: `/post/${post.id}` });
     }
-    return loadPost(post.id, me);
+    return loadPost(post.id, me, req.orgId);
   });
 
   app.patch<{ Params: { id: string } }>('/:id', async (req) => {
@@ -280,7 +283,7 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
     if (post.authorId !== me) throw forbidden('You can only edit your own posts');
     await prisma.post.update({ where: { id: post.id }, data: { body, editedAt: new Date() } });
     await linkHashtags(post.id, body);
-    return loadPost(post.id, me);
+    return loadPost(post.id, me, req.orgId);
   });
 
   app.delete<{ Params: { id: string } }>('/:id', async (req) => {
@@ -288,26 +291,31 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
     const post = await prisma.post.findUnique({ where: { id: req.params.id } });
     if (!post) throw notFound('Post');
     if (post.authorId !== me) {
-      if (!(await canOverUser(me, 'post.moderate', post.authorId))) throw forbidden();
-      await audit(me, 'post.delete', post.id, { authorId: post.authorId });
+      const org = orgOf(req);
+      if (!(await canOverUser(me, org, 'post.moderate', post.authorId))) throw forbidden();
+      await audit(org, me, 'post.delete', post.id, { authorId: post.authorId });
     }
     await prisma.post.delete({ where: { id: post.id } });
     return { ok: true };
   });
 
   app.post<{ Params: { id: string } }>('/:id/pin', { preHandler: requirePerm('post.pin') }, async (req) => {
+    const org = orgOf(req);
     const post = await prisma.post.findUniqueOrThrow({ where: { id: req.params.id } });
+    // pins are company announcements: only posts by people in the active org
+    if (!(await isOrgMember(org, post.authorId))) throw forbidden('Only posts by your colleagues can be pinned');
     await prisma.post.update({ where: { id: post.id }, data: { isPinned: !post.isPinned } });
-    await audit(uid(req), post.isPinned ? 'post.unpin' : 'post.pin', post.id);
+    await audit(org, uid(req), post.isPinned ? 'post.unpin' : 'post.pin', post.id);
     return { pinned: !post.isPinned };
   });
 
   app.post<{ Params: { id: string } }>('/:id/hide', async (req) => {
     const me = uid(req);
+    const org = orgOf(req);
     const post = await prisma.post.findUniqueOrThrow({ where: { id: req.params.id } });
-    if (!(await canOverUser(me, 'post.moderate', post.authorId))) throw forbidden();
+    if (!(await canOverUser(me, org, 'post.moderate', post.authorId))) throw forbidden();
     await prisma.post.update({ where: { id: post.id }, data: { isHidden: !post.isHidden, hiddenAt: post.isHidden ? null : new Date() } });
-    await audit(me, post.isHidden ? 'post.unhide' : 'post.hide', post.id);
+    await audit(org, me, post.isHidden ? 'post.unhide' : 'post.hide', post.id);
     if (!post.isHidden) await notify({ recipientId: post.authorId, actorId: me, type: 'MODERATION', text: 'One of your posts was hidden by a moderator' });
     return { hidden: !post.isHidden };
   });
@@ -341,7 +349,7 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
         });
       }
     }
-    return loadPost(post.id, me);
+    return loadPost(post.id, me, req.orgId);
   });
 
   app.get<{ Params: { id: string }; Querystring: { type?: string } }>('/:id/reactions', async (req) => {
@@ -375,7 +383,7 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
       create: { pollId: poll.id, userId: me, optionId },
       update: { optionId },
     });
-    return loadPost(req.params.id, me);
+    return loadPost(req.params.id, me, req.orgId);
   });
 
   // ───────── Comments ─────────
@@ -405,7 +413,7 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
 
   app.post<{ Params: { id: string } }>('/:id/comments', async (req) => {
     const me = uid(req);
-    await assertCan(me, 'comment.create');
+    await assertCan(me, orgOf(req), 'comment.create');
     const b = parse(z.object({ body: z.string().trim().min(1).max(1250), parentId: z.string().nullish() }), req.body);
     const post = await prisma.post.findUnique({ where: { id: req.params.id }, select: { id: true, authorId: true } });
     if (!post) throw notFound('Post');
@@ -443,7 +451,8 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
     const c = await prisma.comment.findUnique({ where: { id: req.params.commentId }, include: { post: { select: { authorId: true } } } });
     if (!c) throw notFound('Comment');
     // author, post owner, or a scoped moderator can delete
-    if (c.authorId !== me && c.post.authorId !== me && !(await canOverUser(me, 'post.moderate', c.authorId))) throw forbidden();
+    if (c.authorId !== me && c.post.authorId !== me && !(await canOverUser(me, orgOf(req), 'post.moderate', c.authorId))) throw forbidden();
+
     await prisma.comment.delete({ where: { id: c.id } });
     return { ok: true };
   });

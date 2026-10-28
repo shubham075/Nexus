@@ -125,7 +125,8 @@ export const networkRoutes: FastifyPluginAsync = async (app) => {
       select: { requesterId: true, addresseeId: true },
     });
     const exclude = new Set([me, ...mine, ...pending.flatMap((p) => [p.requesterId, p.addresseeId])]);
-    const myNodes = (await prisma.membership.findMany({ where: { userId: me }, select: { nodeId: true } })).map((m) => m.nodeId);
+    const myNodes = (await prisma.membership.findMany({ where: { userId: me, node: { orgId: req.orgId ?? '' } }, select: { nodeId: true } })).map((m) => m.nodeId);
+
 
     const [colleagues, secondDegree] = await Promise.all([
       prisma.membership.findMany({

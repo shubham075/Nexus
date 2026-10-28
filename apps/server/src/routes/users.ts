@@ -41,7 +41,7 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
 
   /** Download my own data as JSON (SOT §8 data export). */
   app.get('/me/export', async (req, reply) => {
-    const data = await exportUser(uid(req), uid(req));
+    const data = await exportUser(uid(req), uid(req), req.orgId);
     reply.header('Content-Disposition', `attachment; filename="${exportFileName(data.profile.name)}"`);
     return data;
   });
@@ -49,11 +49,13 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
   app.get<{ Params: { id: string } }>('/:id', async (req) => {
     const me = uid(req);
     const id = req.params.id === 'me' ? me : req.params.id;
+    // Units are company-private: only show the profile's units inside my active org (SOT D20).
+    const org = req.orgId ?? '';
     const user = await prisma.user.findUnique({
       where: { id },
       select: {
         ...userLite, email: true, about: true, location: true, coverUrl: true, pronouns: true, openTo: true, createdAt: true, isActive: true,
-        memberships: { select: { title: true, isPrimary: true, node: { select: { id: true, name: true, type: true } } } },
+        memberships: { where: { node: { orgId: org } }, select: { title: true, isPrimary: true, node: { select: { id: true, name: true, type: true } } } },
         experiences: { orderBy: { startDate: 'desc' } },
         educations: { orderBy: { startDate: 'desc' } },
         skills: {
@@ -68,8 +70,9 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
     });
     if (!user) throw notFound('User');
 
-    const dag = await getDag();
-    const nodeNames = new Map((await prisma.orgNode.findMany({ select: { id: true, name: true } })).map((n) => [n.id, n.name]));
+    const dag = await getDag(org);
+    const nodeNames = new Map((await prisma.orgNode.findMany({ where: { orgId: org }, select: { id: true, name: true } })).map((n) => [n.id, n.name]));
+
     const orgPaths = user.memberships.flatMap((m) =>
       dag.has(m.node.id) ? dag.paths(m.node.id, 3).map((p) => p.map((nid) => ({ id: nid, name: nodeNames.get(nid) ?? '' }))) : [],
     );

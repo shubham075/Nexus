@@ -10,6 +10,8 @@ import { limits } from '../lib/rateLimit';
 import { createSession, newSecret, revokeSessions, revokeUserSessions, rotateSession, sha256 } from '../lib/sessions';
 import { callbackUrl, emailFromClaims, isLoopbackRedirect, oidcClient, providers } from '../lib/sso';
 import { permissionsOf } from '../rbac';
+import { env } from '../lib/env';
+import { orgsOf } from '../lib/org';
 
 const SSO_START_TTL = 10 * 60_000;
 const SSO_CODE_TTL = 2 * 60_000;
@@ -43,17 +45,26 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     return { ok: true };
   });
 
+  /** Me inside the active org (X-Org-Id): its units and permissions, plus my orgs and the tenancy mode (SOT §14). */
   app.get('/me', { preHandler: authenticate }, async (req) => {
+    const org = req.orgId;
     const me = await prisma.user.findUniqueOrThrow({
       where: { id: uid(req) },
       select: {
         id: true, email: true, name: true, headline: true, avatarUrl: true, coverUrl: true, location: true,
         isSuperAdmin: true, mustChangePassword: true,
-        memberships: { select: { title: true, isPrimary: true, node: { select: { id: true, name: true, type: true } } } },
+        memberships: { where: { node: { orgId: org ?? '' } }, select: { title: true, isPrimary: true, node: { select: { id: true, name: true, type: true } } } },
       },
     });
-    return { ...me, permissions: await permissionsOf(me.id) };
+    return {
+      ...me,
+      permissions: org ? await permissionsOf(me.id, org) : [],
+      tenancy: env.tenancy,
+      orgs: await orgsOf(me.id),
+      activeOrgId: org,
+    };
   });
+
 
   app.post('/change-password', { preHandler: authenticate, config: { rateLimit: limits.changePassword } }, async (req) => {
     const body = parse(z.object({ currentPassword: z.string(), newPassword: z.string() }), req.body);

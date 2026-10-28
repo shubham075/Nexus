@@ -88,10 +88,10 @@ export async function buildUserExport(userId: string) {
   };
 }
 
-/** Builds the export and records who exported whom (audit `user.export`). */
-export async function exportUser(actorId: string, userId: string) {
+/** Builds the export and records who exported whom in the active org's audit log (`user.export`). */
+export async function exportUser(actorId: string, userId: string, orgId: string | null) {
   const data = await buildUserExport(userId);
-  await audit(actorId, 'user.export', userId, { self: actorId === userId });
+  if (orgId) await audit(orgId, actorId, 'user.export', userId, { self: actorId === userId });
   return data;
 }
 

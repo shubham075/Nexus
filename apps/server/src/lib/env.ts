@@ -14,9 +14,14 @@ const int = (name: string, fallback: number) => {
 
 const jwtSecret = req('JWT_SECRET');
 
+const tenancy = process.env.TENANCY || 'single';
+if (tenancy !== 'single' && tenancy !== 'multi') throw new Error('TENANCY must be "single" or "multi"');
+
 export const env = {
   port: Number(process.env.PORT ?? 4000),
   publicUrl: req('PUBLIC_URL', 'http://localhost:4000'),
+  /** SOT D23: single = one internal company (no org switcher); multi = public SaaS with many orgs. */
+  tenancy: tenancy as 'single' | 'multi',
   jwtSecret,
   media: {
     /** HMAC key for signed media URLs; derived from JWT_SECRET when unset (SOT §8). */
