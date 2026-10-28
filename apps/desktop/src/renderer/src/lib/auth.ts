@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Permission } from '@nexus/shared';
-import { api, initApi, setToken, setUnauthorizedHandler } from './api';
+import { ApiError, api, getRefreshToken, initApi, setSession, setUnauthorizedHandler } from './api';
 import { connectSocket, disconnectSocket } from './socket';
 
 export interface Me {
@@ -22,6 +22,7 @@ interface AuthState {
   ready: boolean;
   boot: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
+  loginWithSso: (providerId: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -36,21 +37,33 @@ export const useAuth = create<AuthState>((set, get) => ({
       try {
         set({ me: await api.get<Me>('/auth/me') });
         connectSocket();
-      } catch {
-        await setToken(null);
+      } catch (e) {
+        // /auth/me already tried a refresh; only a definite 401 ends the session (offline keeps it).
+        if (e instanceof ApiError && e.status === 401) await setSession(null);
       }
     }
     set({ ready: true });
   },
   login: async (email, password) => {
-    const { token } = await api.post<{ token: string }>('/auth/login', { email, password });
-    await setToken(token);
+    await setSession(await api.post<{ token: string; refreshToken: string }>('/auth/login', { email, password }));
+    set({ me: await api.get<Me>('/auth/me') });
+    connectSocket();
+  },
+  loginWithSso: async (providerId) => {
+    // Opens the system browser; resolves with a one-time code from the loopback redirect (SOT §8).
+    const { code, codeVerifier } = await window.nexus.sso.start(providerId).catch((e: Error) => {
+      // Electron prefixes IPC rejections with "Error invoking remote method …: Error: ".
+      throw new Error(e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''));
+    });
+    await setSession(await api.post<{ token: string; refreshToken: string }>('/auth/sso/exchange', { code, codeVerifier }));
     set({ me: await api.get<Me>('/auth/me') });
     connectSocket();
   },
   logout: async () => {
     disconnectSocket();
-    await setToken(null);
+    const refreshToken = getRefreshToken();
+    if (refreshToken) api.post('/auth/logout', { refreshToken }).catch(() => {});
+    await setSession(null);
     set({ me: null });
   },
   refresh: async () => set({ me: await api.get<Me>('/auth/me') }),

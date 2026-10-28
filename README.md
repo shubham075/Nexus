@@ -16,7 +16,7 @@ Admins model the company as a **hierarchy DAG** (units may report to several par
 4. [Daily development](#daily-development)
 5. [Demo accounts](#demo-accounts)
 6. [Building the Windows installer](#building-the-windows-installer)
-7. [Deploying for the company](#deploying-for-the-company)
+7. [Deploying for the company](#deploying-for-the-company) (incl. [Single sign-on](#single-sign-on-oidc))
 8. [Project status: phases done / to do](#project-status-phases-done--to-do)
 9. [Working on this project with Claude](#working-on-this-project-with-claude)
 10. [Troubleshooting](#troubleshooting)
@@ -110,6 +110,9 @@ The defaults work out of the box for local development. Change `JWT_SECRET` for 
 | `PORT`, `PUBLIC_URL` | API port and the public base URL used in media links |
 | `S3_*` | Object storage endpoint, bucket and keys |
 | `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`, `SEED_DEMO_PASSWORD` | Credentials created by the seed |
+| `ACCESS_TOKEN_TTL`, `REFRESH_TOKEN_TTL_DAYS` | Access JWT lifetime (default `15m`) and refresh-token idle lifetime in days (default `30`) |
+| `TRUST_PROXY` | Set to `true` (or proxy IPs) behind a reverse proxy so rate limits see the real client IP. `RATE_LIMIT=off` disables limits (tests only) |
+| `OIDC_PROVIDERS`, `OIDC_<ID>_*` | Optional single sign-on; see [Single sign-on](#single-sign-on-oidc) |
 
 ### 5. Create the database and demo data
 
@@ -197,6 +200,38 @@ Output: `apps/desktop/release/Nexus-Setup-<version>.exe` (NSIS, x64, about 80 MB
    ```
    Lookup order: per-user file → file next to the exe → `NEXUS_API_URL` env var → `http://localhost:4000`.
 
+### Single sign-on (OIDC)
+
+Optional. Users still need an account (admins invite them); SSO matches the IdP's verified email to an existing, active Nexus user, and password sign-in keeps working. The app opens the system browser, and the result comes back to the app over a one-shot `http://127.0.0.1:<port>` listener (details in `SOURCE_OF_TRUTH.md` §8).
+
+`PUBLIC_URL` must be the URL users' browsers reach the API on. Register this redirect URI at the IdP (one per provider id):
+`<PUBLIC_URL>/api/v1/auth/sso/<id>/callback`, e.g. `https://nexus.yourcompany.internal/api/v1/auth/sso/microsoft/callback`.
+
+**Microsoft Entra ID (Azure AD):** Entra admin centre → App registrations → New registration → single tenant; platform **Web** with the redirect URI above; Certificates & secrets → new client secret.
+
+```env
+OIDC_PROVIDERS="microsoft"
+OIDC_MICROSOFT_LABEL="Microsoft"
+OIDC_MICROSOFT_ISSUER="https://login.microsoftonline.com/<tenant-id>/v2.0"   # tenant-specific, never /common
+OIDC_MICROSOFT_CLIENT_ID="<application (client) id>"
+OIDC_MICROSOFT_CLIENT_SECRET="<secret value>"
+OIDC_MICROSOFT_EMAIL_CLAIM="preferred_username"   # the UPN; use "email" if you add the optional email claim
+OIDC_MICROSOFT_ALLOWED_DOMAINS="yourcompany.com"
+```
+
+**Google Workspace:** Google Cloud console → APIs & Services → OAuth consent screen (**Internal**) → Credentials → OAuth client ID → **Web application** with the redirect URI above.
+
+```env
+OIDC_PROVIDERS="google"             # or "microsoft,google" for both
+OIDC_GOOGLE_LABEL="Google"
+OIDC_GOOGLE_ISSUER="https://accounts.google.com"
+OIDC_GOOGLE_CLIENT_ID="<client id>"
+OIDC_GOOGLE_CLIENT_SECRET="<client secret>"
+OIDC_GOOGLE_ALLOWED_DOMAINS="yourcompany.com"
+```
+
+Restart the API. The sign-in screen then shows **Continue with Microsoft/Google**. An invited user who signs in by SSO before setting a password has their temporary password retired; **Admin → Employees → Reset password** gives them one again.
+
 ---
 
 ## Project status: phases done / to do
@@ -220,10 +255,10 @@ Legend: ✅ done · 🟡 partly done · ⬜ not started
 - ✅ Minimal premium UI with light / dark / system theme; responsive layout; global error toasts
 - ✅ Windows NSIS installer (unsigned) with configurable server URL
 
-### Phase 1c: hardening ⬜ (next)
+### Phase 1c: hardening 🟡 (in progress)
 - ⬜ Two-user realtime QA (messaging and notifications across two live clients); UI file-picker upload QA
 - ⬜ Automated tests: move the API e2e script into the repo + CI (GitHub Actions); UI tests (Playwright)
-- ⬜ SSO (Azure AD / Google Workspace OIDC), refresh tokens, rate limiting, password policy
+- ✅ Auth hardening: 15-min access tokens + rotating, revocable refresh tokens (`/auth/refresh`, `/auth/logout`; password change/reset and deactivation revoke sessions), rate limiting, password policy (10+ chars, 4 character classes), OIDC SSO for Azure AD / Google Workspace (unit-tested; DB route tests written but not yet run, live IdP round trip needs a real tenant)
 - ⬜ Full-text search (Postgres `tsvector`), Redis for Socket.IO fan-out
 - ⬜ Auto-update (`electron-updater` + internal feed), code-signing certificate
 - ⬜ Authenticated media URLs (currently unguessable but public keys), retention policy, data export

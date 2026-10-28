@@ -1,0 +1,40 @@
+import type { FastifyInstance, FastifyRequest } from 'fastify';
+import rateLimit from '@fastify/rate-limit';
+import { env } from './env';
+import { HttpError } from './http';
+
+/** Rate limits (SOT §8). Authenticated traffic is keyed per user so a shared office NAT doesn't throttle everyone. */
+
+function userOrIp(app: FastifyInstance, req: FastifyRequest): string {
+  const h = req.headers.authorization;
+  if (h?.startsWith('Bearer ')) {
+    try {
+      return `u:${app.jwt.verify<{ sub: string }>(h.slice(7)).sub}`;
+    } catch {
+      /* invalid/expired token: fall back to IP */
+    }
+  }
+  return `ip:${req.ip}`;
+}
+
+export async function registerRateLimit(app: FastifyInstance): Promise<void> {
+  if (!env.rateLimit) return;
+  await app.register(rateLimit, {
+    global: true,
+    max: 600,
+    timeWindow: '1 minute',
+    keyGenerator: (req) => userOrIp(app, req),
+    errorResponseBuilder: (_req, ctx) =>
+      new HttpError(429, 'RATE_LIMITED', `Too many requests. Try again in ${Math.ceil(ctx.ttl / 1000)} seconds.`),
+  });
+}
+
+const email = (req: FastifyRequest) => String((req.body as { email?: unknown } | undefined)?.email ?? '').toLowerCase();
+
+/** Per-route `config.rateLimit` presets for sensitive endpoints. */
+export const limits = {
+  login: { max: 10, timeWindow: '1 minute', keyGenerator: (req: FastifyRequest) => `login:${req.ip}:${email(req)}` },
+  refresh: { max: 30, timeWindow: '1 minute', keyGenerator: (req: FastifyRequest) => `refresh:${req.ip}` },
+  changePassword: { max: 5, timeWindow: '1 minute' },
+  sso: { max: 20, timeWindow: '1 minute', keyGenerator: (req: FastifyRequest) => `sso:${req.ip}` },
+};

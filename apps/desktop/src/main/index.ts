@@ -1,6 +1,10 @@
 import { app, BrowserWindow, ipcMain, nativeTheme, Notification, safeStorage, shell } from 'electron';
+import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { dirname, join } from 'node:path';
+import { API_PREFIX } from '@nexus/shared';
 
 /**
  * API server URL, first match wins:
@@ -79,6 +83,60 @@ ipcMain.handle('auth:set', (_e, token: string) => {
 ipcMain.handle('auth:clear', () => {
   if (existsSync(tokenFile())) unlinkSync(tokenFile());
 });
+
+// ───────── SSO: system browser + one-shot loopback listener (SOT §8) ─────────
+const SSO_TIMEOUT = 5 * 60_000;
+let ssoAbort: (() => void) | null = null;
+
+const ssoPage = (title: string, body: string) =>
+  `<!doctype html><meta charset="utf-8"><title>${title}</title><body style="font:15px system-ui;display:grid;place-items:center;height:90vh;color:#333">` +
+  `<div style="text-align:center"><h2>${title}</h2><p>${body}</p></div>`;
+const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+ipcMain.handle('sso:start', async (_e, providerId: string) => {
+  if (!/^[a-z0-9-]+$/.test(providerId)) throw new Error('Unknown sign-in provider');
+  ssoAbort?.(); // a newer attempt replaces an unfinished one
+  const codeVerifier = randomBytes(32).toString('base64url');
+  const challenge = createHash('sha256').update(codeVerifier).digest('base64url');
+
+  return new Promise<{ code: string; codeVerifier: string }>((resolve, reject) => {
+    let timer: NodeJS.Timeout;
+    const finish = (err: Error | null, code?: string) => {
+      clearTimeout(timer);
+      ssoAbort = null;
+      server.close();
+      win?.show();
+      win?.focus();
+      if (err) reject(err);
+      else resolve({ code: code!, codeVerifier });
+    };
+    const server = createServer((req, res) => {
+      const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+      if (url.pathname !== '/callback') {
+        res.writeHead(404).end();
+        return;
+      }
+      const code = url.searchParams.get('code');
+      const message = url.searchParams.get('message') ?? 'Sign-in was not completed.';
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(
+        code
+          ? ssoPage('Signed in to Nexus', 'You can close this tab and return to the app.')
+          : ssoPage('Sign-in failed', escapeHtml(message)),
+      );
+      finish(code ? null : new Error(message), code ?? undefined);
+    });
+    server.on('error', (err) => finish(err));
+    server.listen(0, '127.0.0.1', () => {
+      const { port } = server.address() as AddressInfo;
+      const q = new URLSearchParams({ redirect_uri: `http://127.0.0.1:${port}/callback`, code_challenge: challenge });
+      shell.openExternal(`${API_URL}${API_PREFIX}/auth/sso/${providerId}/start?${q}`).catch((err) => finish(err));
+    });
+    timer = setTimeout(() => finish(new Error('Sign-in timed out. Please try again.')), SSO_TIMEOUT);
+    ssoAbort = () => finish(new Error('Sign-in was cancelled.'));
+  });
+});
+ipcMain.handle('sso:cancel', () => ssoAbort?.());
 
 ipcMain.handle('config:get', () => ({ apiUrl: API_URL, version: app.getVersion(), platform: process.platform }));
 

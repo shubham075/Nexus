@@ -63,6 +63,40 @@ model User {
   auditLogs          AuditLog[]
   profileViews       ProfileView[]  @relation("viewed")
   profileViewsMade   ProfileView[]  @relation("viewer")
+  authSessions       AuthSession[]
+}
+
+/// One row per sign-in (SOT §8). Holds the hash of the current refresh token; rotated on every refresh.
+model AuthSession {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshHash String    @unique
+  /// Hash of the token rotated out last; presenting it again means theft → session revoked.
+  prevHash    String?   @unique
+  method      String    // "password" | "sso:<provider>"
+  userAgent   String?
+  ip          String?
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  lastUsedAt  DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+
+  @@index([userId])
+}
+
+/// In-flight OIDC sign-in: created at /auth/sso/:id/start, completed by the IdP callback, consumed by /auth/sso/exchange.
+model SsoRequest {
+  id            String   @id // the OIDC `state`
+  provider      String
+  redirectUri   String   // loopback URL of the desktop app
+  challenge     String   // PKCE S256 challenge from the desktop app
+  nonce         String
+  codeVerifier  String   // PKCE verifier for the server ↔ IdP leg
+  codeHash      String?  @unique
+  userId        String?
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
 }
 
 // ───────────────────────── Hierarchy DAG ─────────────────────────

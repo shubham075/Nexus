@@ -10,6 +10,8 @@ import { HttpError } from './lib/http';
 import { DagError } from './dag/engine';
 import { ensureBucket } from './lib/storage';
 import { setupRealtime } from './lib/realtime';
+import { registerRateLimit } from './lib/rateLimit';
+import { pruneSessions } from './lib/sessions';
 import { authRoutes } from './routes/auth';
 import { hierarchyRoutes } from './routes/hierarchy';
 import { adminRoutes } from './routes/admin';
@@ -26,10 +28,11 @@ import { searchRoutes } from './routes/search';
 import { mediaRoutes } from './routes/media';
 import { reportRoutes } from './routes/reports';
 
-const app = Fastify({ logger: { level: 'info' } });
+const app = Fastify({ logger: { level: 'info' }, trustProxy: env.trustProxy });
 
 await app.register(cors, { origin: true, credentials: true });
-await app.register(jwt, { secret: env.jwtSecret, sign: { expiresIn: '7d' } });
+await app.register(jwt, { secret: env.jwtSecret, sign: { expiresIn: env.accessTokenTtl } });
+await registerRateLimit(app);
 await app.register(multipart, { limits: { fileSize: 50 * 1024 * 1024, files: 10 } });
 
 // Action endpoints (accept, hide, save…) are often POSTed with a JSON content-type and no body.
@@ -57,7 +60,7 @@ app.setErrorHandler((err, req, reply) => {
   return reply.status(500).send({ error: { code: 'INTERNAL', message: 'Something went wrong' } });
 });
 
-app.get('/health', async () => ({ ok: true }));
+app.get('/health', { config: { rateLimit: false } }, async () => ({ ok: true }));
 
 await app.register(
   async (api) => {
@@ -83,6 +86,9 @@ await app.register(
 await ensureBucket().catch((e) => app.log.warn(`MinIO not reachable, uploads disabled: ${e.message}`));
 await app.ready();
 setupRealtime(app, app.server);
+const prune = () => pruneSessions().catch((e) => app.log.warn(`Session prune failed: ${e.message}`));
+prune();
+setInterval(prune, 6 * 3600_000).unref();
 // Exit promptly on restart/stop: open websockets otherwise keep the process (and the port) alive.
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.once(sig, () => {

@@ -1,12 +1,26 @@
 import { io, type Socket } from 'socket.io-client';
-import { getBaseUrl, getToken } from './api';
+import { getBaseUrl, getToken, refreshAccess } from './api';
 
 let socket: Socket | null = null;
 const listeners = new Map<string, Set<(data: any) => void>>();
 
 export function connectSocket() {
   if (socket) return socket;
-  socket = io(getBaseUrl(), { auth: { token: getToken() }, transports: ['websocket'] });
+  // `auth` as a callback re-reads the current access token on every reconnect, so refreshes carry over.
+  const s = io(getBaseUrl(), { auth: (cb) => cb({ token: getToken() }), transports: ['websocket'] });
+  socket = s;
+  // The server refuses an expired/revoked token at handshake and socket.io won't retry that on its own:
+  // refresh, then reconnect. A failed refresh means the session is over (the API layer signs out).
+  s.on('connect_error', (err) => {
+    if (err.message !== 'unauthorized') return;
+    refreshAccess()
+      .then((ok) => {
+        if (ok && socket === s) s.connect();
+      })
+      .catch(() => {
+        if (socket === s) setTimeout(() => socket === s && s.connect(), 5000);
+      });
+  });
   for (const [event, set] of listeners) for (const fn of set) socket.on(event, fn);
   return socket;
 }
