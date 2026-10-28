@@ -305,8 +305,8 @@ Legend: ✅ done · 🟡 partly done · ⬜ not started
 - ⬜ Native Windows notifications and taskbar badge, group chat in the UI and video upload have not been QA'd in a packaged build
 - 🟡 Local installer builds can fail on locked-down laptops (endpoint security kills the NSIS step, SOT §13); use the CI artifact
 
-### Phase 2: public release ⬜ (spec ready: SOT §14, decisions D20–D23)
-- ⬜ **2a: tenancy core**: Organization / OrgMember / OrgDomain, `orgId` on company tables (existing data → first org), org-scoped RBAC and DAG caches, `TENANCY=single|multi`, org switcher
+### Phase 2: public release 🟡 (2a done; spec: SOT §14, decisions D20–D23)
+- ✅ **2a: tenancy core** (2026-10-29): Organization / OrgMember / OrgDomain, `orgId` on company tables (migration moves existing data into the first org), org-scoped RBAC and DAG caches, active org per request (`X-Org-Id`, `apps/server/src/lib/org.ts`), `TENANCY=single|multi` (default `single`), org switcher in multi mode. 23/23 e2e incl. 6 cross-org tests; seed adds a test-only org `globex`. Posts, articles and people stay global until 2c (SOT §12)
 - ⬜ **2b: accounts & companies**: public sign-up + email verification, password reset by email, company creation, domain verification, join policies, company pages + follow, platform admin
 - ⬜ **2c: visibility & feed**: post visibility (public / connections / company / units), visibility-aware feed, search, notifications and media
 - ⬜ **2d: public surface**: public jobs on company pages, public groups/events, web client deployment, abuse controls
@@ -327,7 +327,7 @@ This repo is set up so that a **new Claude Code session** (desktop app / GUI, CL
 3. Start with a prompt such as:
    > Read SOURCE_OF_TRUTH.md and the "Project status" section of README.md, then start phase 2: *(pick an item)*.
 
-   Phase 2 starts with multi-tenancy, which touches every model and route. Do it first, on its own branch, before the other phase 2 items.
+   Phase 2a (tenancy core) is done; continue with 2b (accounts & companies).
 4. When a phase item is finished, tick it in this README **and** update `SOURCE_OF_TRUTH.md` (roadmap §10, QA log §12), so the next device or session sees the true status.
 
 Claude's memory on one device doesn't move to another device, so these two files are the hand-over.

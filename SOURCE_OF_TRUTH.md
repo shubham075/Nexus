@@ -281,7 +281,8 @@ The renderer also runs in a normal browser at http://localhost:5183 (web bridge 
 | 1a ✅ built | Monorepo, infra, DAG engine, RBAC, auth, admin hierarchy/roles UI, feed/posts/reactions/comments/reposts/polls, profiles, connections, messaging, notifications |
 | 1b ✅ built (needs QA) | Groups, events, articles/newsletters, jobs, search, moderation queue, analytics |
 | 1c ✅ built | Realtime/upload QA, API e2e + UI tests, CI, OIDC SSO (Azure AD / Google), refresh tokens, rate limiting, password policy, full-text search, Redis, auto-update + signing readiness, production deployment, signed media URLs, retention purge, data export. Open: code-signing certificate, live SSO round trip, retention defaults (P1) |
-| 2 (public) | Multi-tenancy (org per tenant), public sign-up, post visibility levels (public/connections/nodes), premium, recommendations ML, web + mobile clients |
+| 2a ✅ built | Tenancy core (§14.4): organizations, `orgId` on company tables + backfill migration, per-org RBAC/DAG caches, request org context, `TENANCY` flag, org switcher (multi only) |
+| 2b–2e (public) | Public sign-up, companies and domain claiming, post visibility levels (public/connections/nodes), public surface, premium, recommendations ML, web + mobile clients (§14.4) |
 
 ---
 
@@ -294,6 +295,15 @@ The renderer also runs in a normal browser at http://localhost:5183 (web bridge 
 ---
 
 ## 12. QA log
+
+### 2026-10-29 — phase 2a: tenancy core
+Built per §14 (D20–D23) and verified on the dev stack in `TENANCY=single`:
+1. Migration `20261029120000_org_tenancy` tested on a scratch DB with phase-1 rows: one org `org_default` named and slugged after the company root, every user an `OrgMember` (super admins → `isOrgAdmin`), every `OrgNode`/`Role`/`AuditLog`/`Report`/`Group`/`Event`/`Job`/`Newsletter` backfilled. An empty DB gets no org (the seed creates `nexus` + test-only `globex`). The local dev DB had no migration history (it was created with `db push`), so the five phase-1 migrations were marked applied with `prisma migrate resolve` before `migrate deploy`.
+2. `pnpm typecheck`, `pnpm test` (32/32) and `pnpm test:e2e` (23/23, 6 new) pass. The new e2e tests prove that a Globex Super Admin cannot read or change Nexus hierarchy, roles/grants, users (list, update, reset, permissions, export), audit log, reports, analytics or Nexus-owned groups/events/jobs, and the reverse; role names are unique per org only; `X-Org-Id` of an org you don't belong to → 403.
+3. Rules as built: the active org is `X-Org-Id` if you are an ACTIVE member, else your earliest org (`lib/org.ts`, resolved in `authenticate`). `can/permissionScope/permissionsOf/canOverUser` take an `orgId`; `User.isSuperAdmin` bypasses checks only in single mode, `OrgMember.isOrgAdmin` in either mode. Moderation (`canOverUser`) only reaches authors who are in the active org. Group/Event/Job/Newsletter with `orgId = null` are public (none yet); posts attached to another org's group/event/job are hidden from feed, hashtag, profile and search. Unit names on profiles/search show only for the active org.
+4. Desktop: `api.ts` sends `X-Org-Id` once an org is picked (stale org → falls back to default on boot, cleared on sign-out); `TopNav` org switcher renders only when `/auth/me` says `tenancy: "multi"`. Not yet clicked through in multi mode.
+
+Known limits (by design until 2c): posts, comments, articles, people and connections are global, so the feed still shows posts by people of other orgs on the same server; caches are per API process (one instance only, as before).
 
 ### 2026-10-28 — production deployment stack (phase 1c)
 Verified on Docker Desktop 29.1 (Windows), prod stack on 8088/8443 next to the dev stack:
@@ -435,7 +445,7 @@ pnpm build:win:azure  # same, signed with Azure Trusted Signing (electron-builde
 ### 14.4 Sub-phases
 | Sub-phase | Scope | Done when |
 |-----------|-------|-----------|
-| **2a: tenancy core** | Organization/OrgMember/OrgDomain models; `orgId` on company tables + migration moving existing data into one org; org-scoped RBAC + DAG caches; request org context; `TENANCY` flag; org switcher in the UI (multi only) | All existing tests pass in single mode; new tests prove no cross-org reads/writes |
+| **2a: tenancy core** ✅ | Organization/OrgMember/OrgDomain models; `orgId` on company tables + migration moving existing data into one org; org-scoped RBAC + DAG caches; request org context; `TENANCY` flag; org switcher in the UI (multi only) | All existing tests pass in single mode; new tests prove no cross-org reads/writes |
 | **2b: accounts & companies** | Public sign-up, email verification, password reset by email (SMTP), company creation, domain verification, join policies, company pages + follow, platform admin console | A new user can sign up, verify, create/claim a company, invite colleagues |
 | **2c: visibility & feed** | Post visibility (public/connections/org/units), visibility-aware feed, search, notifications and media access | Visibility matrix tests pass |
 | **2d: public surface** | Public jobs on company pages, public groups/events, web client deployment (renderer in browser), basic abuse controls (sign-up rate limits, report users, block) | Web client deployed alongside desktop |

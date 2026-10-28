@@ -15,7 +15,8 @@ Internal LinkedIn-style desktop app (Electron + React) with a Fastify/Prisma API
 
 ## Conventions
 - Server enforces every permission (`requirePerm` / `assertCan` / `canOverUser` in `apps/server/src/lib/auth.ts`, `rbac/`). UI `useCan` only hides controls.
-- After mutating hierarchy, roles, grants or memberships call `invalidateDag()` / `invalidateRbac()`.
+- Tenancy (SOT §14): company-scoped routes get the active org with `orgOf(req)` and use the helpers in `apps/server/src/lib/org.ts` (`visibleIn`, `assertNodesInOrg`, `assertOrgMembers`); RBAC calls take it: `can(userId, orgId, perm, nodes?)`.
+- After mutating hierarchy, roles, grants or memberships call `invalidateDag(orgId)` / `invalidateRbac(orgId)`.
 - New permissions go in `packages/shared/src/permissions.ts` (catalog + groups).
 - Routes: Zod `parse()`, cursor pagination via `pageArgs()` / `page()`, errors via `HttpError` helpers.
 - UI colours: use `zinc-*`, `bg-surface`, `brand-*` tokens (CSS variables in `index.css`) so light and dark both work. Keep the look minimal and neutral.
