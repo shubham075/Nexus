@@ -1,37 +1,60 @@
 import type { FastifyPluginAsync } from 'fastify';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/db';
 import { authenticate, uid } from '../lib/auth';
 import { userLite } from '../lib/notify';
+import { hashtagTerm, inOrder, prefixQuery, searchPostIds, searchTableIds, searchUserIds } from '../lib/search';
 import { postInclude, serializePosts } from './posts';
 
-/** Global search (SOT §5.10) — ILIKE in phase 1, tsvector later. */
+/** Global search (SOT §5.10): Postgres full-text (tsvector + ts_rank, prefix terms) for content; ILIKE for tags and units. */
 export const searchRoutes: FastifyPluginAsync = async (app) => {
   app.addHook('preHandler', authenticate);
 
   app.get<{ Querystring: { q?: string; type?: string } }>('/', async (req) => {
     const me = uid(req);
     const q = (req.query.q ?? '').trim();
-    if (!q) return { people: [], posts: [], groups: [], events: [], jobs: [], hashtags: [], units: [] };
-    const like = { contains: q.replace(/^#/, ''), mode: 'insensitive' as const };
+    const empty = { people: [], posts: [], groups: [], events: [], jobs: [], hashtags: [], units: [] };
+    const bare = q.replace(/^#/, '');
+    if (!bare) return empty;
+    const fts = prefixQuery(q);
+    const like = { contains: bare, mode: 'insensitive' as const };
     const type = req.query.type;
     const want = (t: string) => !type || type === 'all' || type === t;
+    const wantFts = (t: string) => fts !== null && want(t);
     const take = type && type !== 'all' ? 30 : 5;
 
     const [people, posts, groups, events, jobs, hashtags, units] = await Promise.all([
-      want('people')
-        ? prisma.user.findMany({
-            where: { isActive: true, OR: [{ name: like }, { headline: like }, { skills: { some: { name: like } } }] },
-            take,
-            select: { ...userLite, memberships: { where: { isPrimary: true }, select: { node: { select: { name: true } } } } },
-          })
+      wantFts('people')
+        ? searchUserIds(fts!, take).then(async (ids) =>
+            inOrder(ids, await prisma.user.findMany({
+              where: { id: { in: ids } },
+              select: { ...userLite, memberships: { where: { isPrimary: true }, select: { node: { select: { name: true } } } } },
+            })),
+          )
         : [],
-      want('posts')
-        ? prisma.post.findMany({ where: { isHidden: false, body: like }, orderBy: { createdAt: 'desc' }, take, include: postInclude(me) }).then(serializePosts)
+      wantFts('posts')
+        ? searchPostIds(fts!, hashtagTerm(q), take).then(async (ids) =>
+            serializePosts(inOrder(ids, await prisma.post.findMany({ where: { id: { in: ids } }, include: postInclude(me) }))),
+          )
         : [],
-      want('groups') ? prisma.group.findMany({ where: { OR: [{ name: like }, { description: like }] }, take, include: { _count: { select: { members: true } } } }) : [],
-      want('events') ? prisma.event.findMany({ where: { title: like }, take, orderBy: { startsAt: 'desc' } }) : [],
-      want('jobs') ? prisma.job.findMany({ where: { status: 'OPEN', OR: [{ title: like }, { description: like }] }, take, include: { node: { select: { name: true } } } }) : [],
-      want('hashtags') ? prisma.hashtag.findMany({ where: { tag: like }, take, include: { _count: { select: { posts: true } } } }) : [],
+      wantFts('groups')
+        ? searchTableIds('Group', fts!, take).then(async (ids) =>
+            inOrder(ids, await prisma.group.findMany({ where: { id: { in: ids } }, include: { _count: { select: { members: true } } } })),
+          )
+        : [],
+      wantFts('events')
+        ? searchTableIds('Event', fts!, take, { tiebreak: Prisma.sql`t."startsAt" DESC` }).then(async (ids) =>
+            inOrder(ids, await prisma.event.findMany({ where: { id: { in: ids } } })),
+          )
+        : [],
+      wantFts('jobs')
+        ? searchTableIds('Job', fts!, take, { filter: Prisma.sql`t.status = 'OPEN'` }).then(async (ids) =>
+            inOrder(ids, await prisma.job.findMany({ where: { id: { in: ids } }, include: { node: { select: { name: true } } } })),
+          )
+        : [],
+      want('hashtags')
+        ? prisma.hashtag.findMany({ where: { tag: like }, take, orderBy: { posts: { _count: 'desc' } }, include: { _count: { select: { posts: true } } } })
+        : [],
       want('units') ? prisma.orgNode.findMany({ where: { name: like }, take, include: { _count: { select: { memberships: true } } } }) : [],
     ]);
     return { people, posts, groups, events, jobs, hashtags, units };

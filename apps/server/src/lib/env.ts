@@ -10,6 +10,8 @@ export const env = {
   jwtSecret: req('JWT_SECRET'),
   /** Desktop update feed folder served at /updates/ (latest.yml + installers). Relative to apps/server. */
   updatesDir: process.env.UPDATES_DIR ?? 'updates',
+  /** Optional: enables the Socket.IO Redis adapter and shared presence for multiple API instances. */
+  redisUrl: process.env.REDIS_URL || undefined,
   s3: {
     endpoint: req('S3_ENDPOINT', 'http://localhost:9000'),
     region: req('S3_REGION', 'us-east-1'),

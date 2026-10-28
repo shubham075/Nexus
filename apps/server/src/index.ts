@@ -9,7 +9,7 @@ import { env } from './lib/env';
 import { HttpError } from './lib/http';
 import { DagError } from './dag/engine';
 import { ensureBucket } from './lib/storage';
-import { setupRealtime } from './lib/realtime';
+import { closeRealtime, setupRealtime } from './lib/realtime';
 import { registerObservability } from './lib/observability';
 import { authRoutes } from './routes/auth';
 import { hierarchyRoutes } from './routes/hierarchy';
@@ -89,12 +89,12 @@ await app.register(
 
 await ensureBucket().catch((e) => app.log.warn(`MinIO not reachable, uploads disabled: ${e.message}`));
 await app.ready();
-setupRealtime(app, app.server);
+await setupRealtime(app, app.server);
 // Exit promptly on restart/stop: open websockets otherwise keep the process (and the port) alive.
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.once(sig, () => {
     setTimeout(() => process.exit(0), 1500).unref();
-    app.close().finally(() => process.exit(0));
+    Promise.allSettled([closeRealtime(), app.close()]).finally(() => process.exit(0));
   });
 }
 

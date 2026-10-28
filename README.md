@@ -237,7 +237,7 @@ Legend: ✅ done · 🟡 partly done · ⬜ not started
 - ⬜ Installer build is flaky on locked-down machines (NSIS uninstaller step killed; see SOT §13)
 - ✅ Automated tests: API e2e suite in the repo (`pnpm test:e2e`, 16 scenarios), Playwright UI tests (`pnpm test:ui`), GitHub Actions CI (`.github/workflows/ci.yml`: typecheck, unit, API e2e, UI; Windows installer artifact on `master`)
 - ⬜ SSO (Azure AD / Google Workspace OIDC), refresh tokens, rate limiting, password policy
-- ⬜ Full-text search (Postgres `tsvector`), Redis for Socket.IO fan-out
+- ✅ Full-text search (Postgres `tsvector` + GIN, `ts_rank`, prefix search-as-you-type), Redis for Socket.IO fan-out + shared presence (opt-in via `REDIS_URL`)
 - ✅ Auto-update (`electron-updater` + generic feed served by the API at `/updates/`), "Restart to update" banner, code-signing wiring (PFX or Azure Trusted Signing). Still needed: a real certificate and an end-to-end update test from a CI-built installer
 - ⬜ Authenticated media URLs (currently unguessable but public keys), retention policy, data export
 - ✅ Production deployment guide/scripts: API Docker image, prod compose (Caddy HTTPS/WSS, Postgres, S3, Redis), nightly backups + tested restore, `/health/ready|live`, Prometheus metrics ([`deploy/README.md`](deploy/README.md))

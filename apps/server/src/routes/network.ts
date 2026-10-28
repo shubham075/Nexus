@@ -32,7 +32,7 @@ export const networkRoutes: FastifyPluginAsync = async (app) => {
       orderBy: { respondedAt: 'desc' },
       include: { requester: { select: userLite }, addressee: { select: userLite } },
     });
-    const online = new Set(onlineUserIds());
+    const online = new Set(await onlineUserIds());
     return rows.map((r) => {
       const other = r.requesterId === me ? r.addressee : r.requester;
       return { ...other, connectedAt: r.respondedAt, online: online.has(other.id) };

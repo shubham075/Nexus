@@ -1,4 +1,4 @@
-# Postgres + S3-compatible object storage for local dev.
+# Postgres + S3-compatible object storage + Redis for local dev.
 # MinIO images are no longer pullable from Docker Hub/quay, so SeaweedFS provides the S3 API (SOT D9).
 # Host ports avoid the common 5432/5433/8333 to coexist with other local stacks.
 services:
@@ -26,6 +26,17 @@ services:
       - "8334:8333"
     volumes:
       - s3data:/data
+
+  # Optional: Socket.IO fan-out + shared presence across API instances (set REDIS_URL to use it).
+  redis:
+    image: redis:7-alpine
+    container_name: nexus-redis
+    ports:
+      - "6381:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
 
 volumes:
   pgdata:

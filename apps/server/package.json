@@ -26,10 +26,12 @@
     "@fastify/static": "7.0.4",
     "@nexus/shared": "workspace:*",
     "@prisma/client": "5.22.0",
+    "@socket.io/redis-adapter": "8.3.0",
     "bcryptjs": "2.4.3",
     "fastify": "4.28.1",
     "prisma": "5.22.0",
     "prom-client": "15.1.3",
+    "redis": "4.7.0",
     "socket.io": "4.8.1",
     "zod": "3.23.8"
   },
