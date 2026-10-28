@@ -8,6 +8,11 @@ const api = {
     set: (token: string): Promise<void> => ipcRenderer.invoke('auth:set', token),
     clear: (): Promise<void> => ipcRenderer.invoke('auth:clear'),
   },
+  sso: {
+    /** Opens the system browser; resolves with a one-time code to exchange at `/auth/sso/exchange`. */
+    start: (providerId: string): Promise<{ code: string; codeVerifier: string }> => ipcRenderer.invoke('sso:start', providerId),
+    cancel: (): Promise<void> => ipcRenderer.invoke('sso:cancel'),
+  },
   config: (): Promise<{ apiUrl: string; version: string; platform: string }> => ipcRenderer.invoke('config:get'),
   notify: (title: string, body: string, link?: string) => ipcRenderer.send('notify', { title, body, link }),
   setBadge: (count: number) => ipcRenderer.send('badge', count),

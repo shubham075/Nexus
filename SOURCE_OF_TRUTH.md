@@ -15,7 +15,7 @@ Last updated: 2026-10-28
 |---|-------|----------|
 | D1 | Desktop stack | **Electron + React + TypeScript** (electron-vite, Tailwind) |
 | D2 | Backend / data | **Central API server + PostgreSQL**; all desktop clients connect to it |
-| D3 | Auth | **Email + password, admin-invited accounts** (SSO later) |
+| D3 | Auth | **Email + password, admin-invited accounts**; optional **OIDC SSO** (Azure AD / Google Workspace) that only matches existing accounts by email — no self sign-up |
 | D4 | Hierarchy shape | **Multi-parent DAG** (matrix org); cycles rejected by the engine |
 | D5 | Permission inheritance | **Flows down to descendants**; effective permissions = union of all grants on all paths |
 | D6 | Phase 1 features | Feed/posts/reactions/comments/reposts, profiles/connections/follow, messaging + notifications, groups/events/articles/jobs |
@@ -47,7 +47,7 @@ Engineering choices (made by the build, can be revisited):
 | Realtime | Socket.IO | messaging, notifications, typing indicators |
 | Client state | TanStack Query + Zustand | server cache + small UI/auth store |
 | DAG UI | React Flow (`@xyflow/react`) + dagre layout | interactive org-graph editor |
-| Auth tokens | JWT access token (stored by Electron main via `safeStorage`) | desktop-friendly |
+| Auth tokens | 15-min JWT access token + rotating refresh token (hashed in DB, one row per sign-in session); both stored by Electron main via `safeStorage` | desktop-friendly, revocable |
 
 ---
 
@@ -224,7 +224,7 @@ Full definition: `apps/server/prisma/schema.prisma` (authoritative for fields).
 ---
 
 ## 7. API conventions
-- REST under `/api/v1`, JSON, Zod-validated bodies, `Authorization: Bearer <jwt>`.
+- REST under `/api/v1`, JSON, Zod-validated bodies, `Authorization: Bearer <jwt>`. On `401` the client calls `POST /auth/refresh` once and retries (§8).
 - Cursor pagination: `?cursor=<id>&limit=20` → `{ items, nextCursor }`.
 - Errors: `{ error: { code, message } }` with proper HTTP status.
 - Realtime: Socket.IO namespace `/`, auth via JWT in handshake; rooms `user:<id>`, `conv:<id>`.
@@ -234,8 +234,20 @@ Full definition: `apps/server/prisma/schema.prisma` (authoritative for fields).
 ---
 
 ## 8. Security
-- bcrypt password hashing; JWT 7-day access token (refresh tokens in phase 2).
-- Electron: `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, narrow preload bridge; token kept in main process with `safeStorage`.
+- bcrypt password hashing (cost 10).
+- **Password policy** (`packages/shared/src/password.ts`, enforced server-side): 10–72 characters (bcrypt limit is 72 bytes), with an upper-case letter, a lower-case letter, a digit and a symbol; must differ from the current password. Applied to change-password; admin invite/reset generate temporary passwords that satisfy the same policy. The change-password screen shows the rules live.
+- **Sessions & tokens**: every sign-in (password or SSO) creates an `AuthSession` row.
+  - Access token: JWT `{ sub, sid }`, lifetime `ACCESS_TOKEN_TTL` (default `15m`). `authenticate` checks the session is not revoked and the user is active on every request, so revocation is immediate.
+  - Refresh token: 32 random bytes, only its SHA-256 is stored. `POST /auth/refresh` rotates it (new token, sliding expiry `REFRESH_TOKEN_TTL_DAYS`, default 30). Presenting the previous (already rotated) token is treated as theft and revokes the session.
+  - `POST /auth/logout` revokes the session. Password change revokes all *other* sessions; admin password reset and deactivation revoke all sessions. Revoked sessions' sockets are disconnected (room `session:<sid>`).
+  - Tokens issued before 1c (no `sid`) are rejected; users sign in once more.
+- **Rate limiting** (`@fastify/rate-limit`): global 600 req/min per user (per IP when unauthenticated); `/auth/login` 10/min per IP+email; `/auth/refresh` 30/min per IP; `/auth/change-password` 5/min per user; SSO start/exchange 20/min per IP. `RATE_LIMIT=off` disables (tests only). Behind a reverse proxy set `TRUST_PROXY` so the client IP is used.
+- **SSO (OIDC)**, configured by `OIDC_PROVIDERS` + `OIDC_<ID>_*` env (README → "Single sign-on"). Authorization-code flow with PKCE, server is the confidential client; the redirect URI registered at the IdP is `PUBLIC_URL/api/v1/auth/sso/<id>/callback`.
+  - Desktop: main process opens the system browser and listens on a one-shot loopback server `http://127.0.0.1:<random port>/callback`; it sends a PKCE challenge to `/auth/sso/<id>/start`. After the IdP callback the server redirects to the loopback URL with a one-time code (2-min lifetime) that the app exchanges, with its verifier, at `POST /auth/sso/exchange` for the normal token pair. Only loopback redirect URIs are accepted (no open redirect).
+  - Account match: verified email claim (`email`, or `OIDC_<ID>_EMAIL_CLAIM`, e.g. `preferred_username` for Azure UPNs) against an existing, active user; optional `OIDC_<ID>_ALLOWED_DOMAINS`. Unknown emails are refused — admins still invite. `email_verified: false` is refused.
+  - A user who signs in by SSO while still holding an admin-issued temporary password has it retired (random hash, `mustChangePassword` cleared); an admin reset gives them a password again.
+  - Password login stays available.
+- Electron: `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, narrow preload bridge; tokens kept in main process with `safeStorage`.
 - All permission checks server-side; UI hides controls only as UX.
 - Uploads: type allow-list (image/*, video/mp4, application/pdf), size limits, stored in MinIO with server-generated keys.
 - Production (`deploy/`): only the Caddy proxy publishes ports (HTTPS + WSS); Postgres, S3, Redis and the API stay on the internal Docker network; the API image runs as the non-root `node` user; `/metrics` is blocked at the proxy; secrets live in `deploy/.env.prod` (git-ignored).
@@ -265,7 +277,7 @@ The renderer also runs in a normal browser at http://localhost:5183 (web bridge 
 |-------|-------|
 | 1a ✅ built | Monorepo, infra, DAG engine, RBAC, auth, admin hierarchy/roles UI, feed/posts/reactions/comments/reposts/polls, profiles, connections, messaging, notifications |
 | 1b ✅ built (needs QA) | Groups, events, articles/newsletters, jobs, search, moderation queue, analytics |
-| 1c (in progress) | ✅ realtime/upload QA, E2E + UI tests, CI, full-text search, Redis, auto-update + signing readiness, production deployment, signed media URLs, retention purge, data export. In parallel branches: SSO (Azure AD / Google), refresh tokens, rate limiting, password policy · auto-update, signing · production deployment |
+| 1c ✅ built | Realtime/upload QA, API e2e + UI tests, CI, OIDC SSO (Azure AD / Google), refresh tokens, rate limiting, password policy, full-text search, Redis, auto-update + signing readiness, production deployment, signed media URLs, retention purge, data export. Open: code-signing certificate, live SSO round trip, retention defaults (P1) |
 | 2 (public) | Multi-tenancy (org per tenant), public sign-up, post visibility levels (public/connections/nodes), premium, recommendations ML, web + mobile clients |
 
 ---
@@ -293,6 +305,13 @@ Known limits: one API instance only (DAG/RBAC caches are per process); the bundl
 Added `electron-updater` 6.3.9 (generic feed from `nexus.config.json` `updateUrl`, else `<apiUrl>/updates/`), "Restart to update" banner, API `GET /updates/*` (`@fastify/static`, `UPDATES_DIR`), `publish` config (latest.yml + blockmap), `CSC_LINK`/`CSC_KEY_PASSWORD` and Azure Trusted Signing (`build:win:azure`) paths; see §13.
 Verified: `pnpm typecheck` clean; `electron-vite build` succeeds with electron-updater bundled into `out/main`.
 Not yet covered: an end-to-end update (install v0.1.0 → publish v0.1.1 → banner → restart) — needs a packaged NSIS build, which this managed laptop's endpoint security blocks; run it from CI artifacts. Signing untested (no certificate yet).
+
+### 2026-10-28 — phase 1c auth hardening
+Built: `AuthSession` model (rotating refresh tokens, hashed), `/auth/refresh`, `/auth/logout`, session check on every request and socket handshake, revocation on password change/reset/deactivation with socket disconnect; `@fastify/rate-limit`; shared password policy with live checklist; OIDC SSO (`/auth/sso/providers`, `/:id/start`, `/:id/callback`, `/exchange`) with desktop loopback flow.
+
+Verified: server + desktop typecheck clean; unit tests for password policy, temp passwords, OIDC env parsing, loopback-only redirects, email-claim mapping. Route tests written (`src/routes/auth.test.ts`, run against the dev DB, skipped when it is down) but **not yet run**: Docker/Postgres was unresponsive during this session. They cover: login → refresh rotation → replay revokes session; logout with refresh token only; change-password policy + other sessions signed out; SSO exchange PKCE check, single use, temp password retired; login rate limit (11th attempt → 429).
+
+Not yet covered: running the route tests above with the DB up, a live Azure AD / Google round trip (needs a tenant + client secret), the Electron loopback listener end to end, and the renderer's transparent refresh in a running app (15-min expiry; set `ACCESS_TOKEN_TTL=1m` to exercise it).
 
 ### 2026-10-28 — full click-through + API end-to-end pass
 Fixed:

@@ -12,6 +12,8 @@ import { ensureBucket, signMedia, unsignMedia } from './lib/storage';
 import { startRetentionJob } from './lib/retention';
 import { closeRealtime, setupRealtime } from './lib/realtime';
 import { registerObservability } from './lib/observability';
+import { registerRateLimit } from './lib/rateLimit';
+import { pruneSessions } from './lib/sessions';
 import { authRoutes } from './routes/auth';
 import { hierarchyRoutes } from './routes/hierarchy';
 import { adminRoutes } from './routes/admin';
@@ -32,11 +34,12 @@ import { updateRoutes } from './routes/updates';
 // JSON logs to stdout (pino). TRUST_PROXY=true behind the reverse proxy so req.ip is the client, not the proxy.
 const app = Fastify({
   logger: { level: process.env.LOG_LEVEL ?? 'info', redact: ['req.headers.authorization'] },
-  trustProxy: process.env.TRUST_PROXY === 'true',
+  trustProxy: env.trustProxy,
 });
 
 await app.register(cors, { origin: true, credentials: true });
-await app.register(jwt, { secret: env.jwtSecret, sign: { expiresIn: '7d' } });
+await app.register(jwt, { secret: env.jwtSecret, sign: { expiresIn: env.accessTokenTtl } });
+await registerRateLimit(app);
 await app.register(multipart, { limits: { fileSize: 50 * 1024 * 1024, files: 10 } });
 
 // Action endpoints (accept, hide, save…) are often POSTed with a JSON content-type and no body.
@@ -98,6 +101,9 @@ await ensureBucket().catch((e) => app.log.warn(`MinIO not reachable, uploads dis
 await app.ready();
 await setupRealtime(app, app.server);
 const stopRetention = startRetentionJob(app.log);
+const prune = () => pruneSessions().catch((e) => app.log.warn(`Session prune failed: ${e.message}`));
+prune();
+setInterval(prune, 6 * 3600_000).unref();
 // Exit promptly on restart/stop: open websockets otherwise keep the process (and the port) alive.
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.once(sig, () => {

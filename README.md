@@ -16,7 +16,7 @@ Admins model the company as a **hierarchy DAG** (units may report to several par
 4. [Daily development](#daily-development)
 5. [Demo accounts](#demo-accounts)
 6. [Building the Windows installer](#building-the-windows-installer)
-7. [Deploying for the company](#deploying-for-the-company)
+7. [Deploying for the company](#deploying-for-the-company) (incl. [Single sign-on](#single-sign-on-oidc))
 8. [Project status: phases done / to do](#project-status-phases-done--to-do)
 9. [Working on this project with Claude](#working-on-this-project-with-claude)
 10. [Troubleshooting](#troubleshooting)
@@ -113,6 +113,9 @@ The defaults work out of the box for local development. Change `JWT_SECRET` for 
 | `MEDIA_URL_SECRET`, `MEDIA_URL_TTL_SECONDS` | Signs media links (defaults: derived from `JWT_SECRET`, 3600 s) |
 | `RETENTION_*` | Purge windows in days for hidden content, messages, notifications, audit log (see SOT §8) |
 | `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`, `SEED_DEMO_PASSWORD` | Credentials created by the seed |
+| `ACCESS_TOKEN_TTL`, `REFRESH_TOKEN_TTL_DAYS` | Access JWT lifetime (default `15m`) and refresh-token idle lifetime in days (default `30`) |
+| `TRUST_PROXY` | Set to `true` (or proxy IPs) behind a reverse proxy so rate limits see the real client IP. `RATE_LIMIT=off` disables limits (tests only) |
+| `OIDC_PROVIDERS`, `OIDC_<ID>_*` | Optional single sign-on; see [Single sign-on](#single-sign-on-oidc) |
 
 ### 5. Create the database and demo data
 
@@ -211,6 +214,38 @@ Full guide: **[`deploy/README.md`](deploy/README.md)** (what to provision, first
 2. `pnpm build:win` (signed if `CSC_LINK` / Azure is configured).
 3. Copy `Nexus-Setup-<v>.exe` and `Nexus-Setup-<v>.exe.blockmap`, then **`latest.yml` last**, into the API host's `apps/server/updates/` folder (or `UPDATES_DIR`), or to your `updateUrl` host. No server restart needed.
 
+### Single sign-on (OIDC)
+
+Optional. Users still need an account (admins invite them); SSO matches the IdP's verified email to an existing, active Nexus user, and password sign-in keeps working. The app opens the system browser, and the result comes back to the app over a one-shot `http://127.0.0.1:<port>` listener (details in `SOURCE_OF_TRUTH.md` §8).
+
+`PUBLIC_URL` must be the URL users' browsers reach the API on. Register this redirect URI at the IdP (one per provider id):
+`<PUBLIC_URL>/api/v1/auth/sso/<id>/callback`, e.g. `https://nexus.yourcompany.internal/api/v1/auth/sso/microsoft/callback`.
+
+**Microsoft Entra ID (Azure AD):** Entra admin centre → App registrations → New registration → single tenant; platform **Web** with the redirect URI above; Certificates & secrets → new client secret.
+
+```env
+OIDC_PROVIDERS="microsoft"
+OIDC_MICROSOFT_LABEL="Microsoft"
+OIDC_MICROSOFT_ISSUER="https://login.microsoftonline.com/<tenant-id>/v2.0"   # tenant-specific, never /common
+OIDC_MICROSOFT_CLIENT_ID="<application (client) id>"
+OIDC_MICROSOFT_CLIENT_SECRET="<secret value>"
+OIDC_MICROSOFT_EMAIL_CLAIM="preferred_username"   # the UPN; use "email" if you add the optional email claim
+OIDC_MICROSOFT_ALLOWED_DOMAINS="yourcompany.com"
+```
+
+**Google Workspace:** Google Cloud console → APIs & Services → OAuth consent screen (**Internal**) → Credentials → OAuth client ID → **Web application** with the redirect URI above.
+
+```env
+OIDC_PROVIDERS="google"             # or "microsoft,google" for both
+OIDC_GOOGLE_LABEL="Google"
+OIDC_GOOGLE_ISSUER="https://accounts.google.com"
+OIDC_GOOGLE_CLIENT_ID="<client id>"
+OIDC_GOOGLE_CLIENT_SECRET="<client secret>"
+OIDC_GOOGLE_ALLOWED_DOMAINS="yourcompany.com"
+```
+
+Restart the API. The sign-in screen then shows **Continue with Microsoft/Google**. An invited user who signs in by SSO before setting a password has their temporary password retired; **Admin → Employees → Reset password** gives them one again.
+
 ---
 
 ## Project status: phases done / to do
@@ -238,7 +273,7 @@ Legend: ✅ done · 🟡 partly done · ⬜ not started
 - ✅ Two-user realtime QA (messaging, typing, "seen", presence, unread and notification badges); UI file-picker upload QA (QA'd 2026-10-28, see SOT §12)
 - ⬜ Installer build is flaky on locked-down machines (NSIS uninstaller step killed; see SOT §13)
 - ✅ Automated tests: API e2e suite in the repo (`pnpm test:e2e`, 16 scenarios), Playwright UI tests (`pnpm test:ui`), GitHub Actions CI (`.github/workflows/ci.yml`: typecheck, unit, API e2e, UI; Windows installer artifact on `master`)
-- ⬜ SSO (Azure AD / Google Workspace OIDC), refresh tokens, rate limiting, password policy
+- ✅ Auth hardening: 15-min access tokens + rotating, revocable refresh tokens (`/auth/refresh`, `/auth/logout`; password change/reset and deactivation revoke sessions), rate limiting, password policy (10+ chars, 4 character classes), OIDC SSO for Azure AD / Google Workspace (unit-tested; DB route tests written but not yet run, live IdP round trip needs a real tenant)
 - ✅ Full-text search (Postgres `tsvector` + GIN, `ts_rank`, prefix search-as-you-type), Redis for Socket.IO fan-out + shared presence (opt-in via `REDIS_URL`)
 - ✅ Auto-update (`electron-updater` + generic feed served by the API at `/updates/`), "Restart to update" banner, code-signing wiring (PFX or Azure Trusted Signing). Still needed: a real certificate and an end-to-end update test from a CI-built installer
 - ✅ Signed, expiring media URLs (HMAC, re-signed on every read); retention purge job (defaults await product-owner confirmation, SOT P1); JSON data export (self + admin, audited)

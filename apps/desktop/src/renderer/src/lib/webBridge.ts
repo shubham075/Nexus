@@ -16,6 +16,13 @@ if (!window.nexus) {
       set: async (t) => store.set(t),
       clear: async () => store.set(null),
     },
+    // The loopback flow needs the desktop main process; the phase-2 web client will use a redirect flow.
+    sso: {
+      start: async () => {
+        throw new Error('Single sign-on is available in the desktop app.');
+      },
+      cancel: async () => {},
+    },
     config: async () => ({ apiUrl: import.meta.env.VITE_API_URL ?? 'http://localhost:4000', version: 'web', platform: 'web' }),
     notify: () => {},
     setBadge: (n) => { document.title = n > 0 ? `(${n}) Nexus` : 'Nexus'; },

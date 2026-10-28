@@ -7,6 +7,7 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from './db';
 import { env } from './env';
 import { signMedia } from './storage';
+import { sessionIsLive } from './sessions';
 
 type Redis = ReturnType<typeof createClient>;
 
@@ -67,11 +68,15 @@ export async function setupRealtime(app: FastifyInstance, server: HttpServer): P
     app.log.info('realtime: Redis adapter enabled');
   }
 
-  io.use((socket, next) => {
+  // The client re-sends its current access token on every (re)connect; a revoked session is refused (SOT §8).
+  io.use(async (socket, next) => {
     try {
       const token = socket.handshake.auth?.token as string | undefined;
       if (!token) return next(new Error('unauthorized'));
-      socket.data.userId = app.jwt.verify<{ sub: string }>(token).sub;
+      const { sub, sid } = app.jwt.verify<{ sub: string; sid?: string }>(token);
+      if (!(await sessionIsLive(sub, sid))) return next(new Error('unauthorized'));
+      socket.data.userId = sub;
+      socket.data.sessionId = sid;
       next();
     } catch {
       next(new Error('unauthorized'));
@@ -81,6 +86,7 @@ export async function setupRealtime(app: FastifyInstance, server: HttpServer): P
   io.on('connection', (socket) => {
     const userId: string = socket.data.userId;
     socket.join(`user:${userId}`);
+    socket.join(`session:${socket.data.sessionId}`);
     const n = (online.get(userId) ?? 0) + 1;
     online.set(userId, n);
     redis?.multi().hSet(presenceKey(INSTANCE), userId, String(n)).expire(presenceKey(INSTANCE), PRESENCE_TTL_S).exec().catch(() => undefined);
@@ -138,3 +144,9 @@ export async function onlineUserIds(): Promise<string[]> {
     return [...online.keys()];
   }
 }
+
+/** Drops the sockets of revoked sessions. */
+export function disconnectSessions(sessionIds: string[]): void {
+  if (io && sessionIds.length) io.in(sessionIds.map((id) => `session:${id}`)).disconnectSockets(true);
+}
+

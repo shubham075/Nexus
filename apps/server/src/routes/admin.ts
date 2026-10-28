@@ -1,18 +1,26 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { randomBytes } from 'node:crypto';
+import { randomInt } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
-import { PERMISSION_KEYS, PERMISSIONS, PERMISSION_GROUPS, type Permission } from '@nexus/shared';
+import { PERMISSION_KEYS, PERMISSIONS, PERMISSION_GROUPS, passwordProblem, type Permission } from '@nexus/shared';
 import { prisma } from '../lib/db';
 import { badRequest, forbidden, notFound, page, pageArgs, parse } from '../lib/http';
 import { authenticate, requirePerm, uid } from '../lib/auth';
 import { audit, userLite } from '../lib/notify';
+import { revokeUserSessions } from '../lib/sessions';
 import { can, invalidateRbac, permissionsOf } from '../rbac';
 import { env } from '../lib/env';
 import { exportFileName, exportUser } from '../lib/export';
 import { lastPurge } from '../lib/retention';
 
-const tempPassword = () => `Nx-${randomBytes(6).toString('base64url')}`;
+/** Temporary password that satisfies the password policy (SOT §8): upper, lower, digit, symbol, 14 chars. */
+export function tempPassword(): string {
+  const pick = (set: string) => set[randomInt(set.length)];
+  const body = Array.from({ length: 10 }, () => pick('ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789')).join('');
+  const pw = `Nx-${pick('ABCDEFGHJKLMNPQRSTUVWXYZ')}${body}${pick('23456789')}`;
+  if (passwordProblem(pw) || !/[a-z]/.test(pw)) return tempPassword();
+  return pw;
+}
 
 export const adminRoutes: FastifyPluginAsync = async (app) => {
   app.addHook('preHandler', authenticate);
@@ -77,6 +85,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     if (body.isSuperAdmin !== undefined && !(await can(uid(req), 'admin.all'))) throw forbidden('Only super admins can change super-admin status');
     if (req.params.id === uid(req) && body.isActive === false) throw badRequest('You cannot deactivate yourself');
     const user = await prisma.user.update({ where: { id: req.params.id }, data: body, select: { ...userLite, isActive: true, isSuperAdmin: true } });
+    if (body.isActive === false) await revokeUserSessions(user.id);
     invalidateRbac();
     await audit(uid(req), 'user.update', user.id, body);
     return user;
@@ -88,6 +97,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       where: { id: req.params.id },
       data: { passwordHash: await bcrypt.hash(password, 10), mustChangePassword: true },
     });
+    await revokeUserSessions(req.params.id);
     await audit(uid(req), 'user.reset_password', req.params.id);
     return { temporaryPassword: password };
   });

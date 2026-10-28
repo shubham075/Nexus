@@ -3,11 +3,13 @@ import type { Permission } from '@nexus/shared';
 import { prisma } from './db';
 import { HttpError, forbidden } from './http';
 import { can } from '../rbac';
+import { sessionIsLive } from './sessions';
 
 declare module '@fastify/jwt' {
   interface FastifyJWT {
-    payload: { sub: string };
-    user: { sub: string };
+    /** `sid` = AuthSession id (SOT §8). */
+    payload: { sub: string; sid: string };
+    user: { sub: string; sid?: string };
   }
 }
 
@@ -17,8 +19,7 @@ export async function authenticate(req: FastifyRequest): Promise<void> {
   } catch {
     throw new HttpError(401, 'UNAUTHORIZED', 'Please sign in');
   }
-  const u = await prisma.user.findUnique({ where: { id: req.user.sub }, select: { isActive: true } });
-  if (!u?.isActive) throw new HttpError(401, 'UNAUTHORIZED', 'Account disabled');
+  if (!(await sessionIsLive(req.user.sub, req.user.sid))) throw new HttpError(401, 'UNAUTHORIZED', 'Your session has ended');
   prisma.user.update({ where: { id: req.user.sub }, data: { lastSeenAt: new Date() } }).catch(() => {});
 }
 

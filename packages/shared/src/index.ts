@@ -11,3 +11,4 @@ export const IMAGE_ACCEPT = Object.keys(UPLOAD_TYPES).filter((t) => t.startsWith
 
 export * from './permissions';
 export * from './types';
+export * from './password';
