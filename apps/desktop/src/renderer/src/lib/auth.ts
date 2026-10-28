@@ -27,6 +27,8 @@ interface AuthState {
   boot: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   loginWithSso: (providerId: string) => Promise<void>;
+  /** Signs in with a token pair from an email link (verify-email). */
+  loginWithTokens: (pair: { token: string; refreshToken: string }) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
   switchOrg: (orgId: string) => void;
@@ -72,6 +74,11 @@ export const useAuth = create<AuthState>((set, get) => ({
       throw new Error(e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''));
     });
     await setSession(await api.post<{ token: string; refreshToken: string }>('/auth/sso/exchange', { code, codeVerifier }));
+    set({ me: await api.get<Me>('/auth/me') });
+    connectSocket();
+  },
+  loginWithTokens: async (pair) => {
+    await setSession(pair);
     set({ me: await api.get<Me>('/auth/me') });
     connectSocket();
   },

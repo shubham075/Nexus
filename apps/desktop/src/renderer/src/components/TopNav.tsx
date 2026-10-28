@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Bell, Briefcase, Home, MessageSquareText, Search, Shield, Users, Network as OrgIcon, Bookmark, CalendarDays, Newspaper, UsersRound, LogOut, KeyRound, Download, Building2, Check } from 'lucide-react';
+import { Bell, Briefcase, Home, MessageSquareText, Search, Shield, Users, Network as OrgIcon, Bookmark, CalendarDays, Newspaper, UsersRound, LogOut, KeyRound, Download, Building2, Check, ShieldCheck } from 'lucide-react';
 import { APP_NAME } from '@nexus/shared';
 import { api, downloadJson } from '@/lib/api';
 import { useToasts } from '@/lib/toast';
@@ -35,7 +35,16 @@ function NavItem({ to, icon, label, badge }: { to: string; icon: React.ReactNode
 /** Multi mode only (SOT D23): pick the active organization; single mode has exactly one and shows nothing. */
 function OrgSwitcher() {
   const { me, switchOrg } = useAuth();
-  if (me!.tenancy !== 'multi' || !me!.orgs.length) return null;
+  const navigate = useNavigate();
+  if (me!.tenancy !== 'multi') return null;
+  if (!me!.orgs.length) {
+    return (
+      <button className="flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-medium text-zinc-700 hover:bg-zinc-100" onClick={() => navigate('/companies')}>
+        <Building2 size={16} className="shrink-0" />
+        <span className="hidden lg:inline">Join or create a company</span>
+      </button>
+    );
+  }
   const active = me!.orgs.find((o) => o.id === me!.activeOrgId);
   return (
     <Menu
@@ -52,6 +61,8 @@ function OrgSwitcher() {
           {o.name}
         </MenuItem>
       ))}
+      <div className="my-1 border-t border-zinc-200" />
+      <MenuItem icon={<Building2 size={16} />} onClick={() => navigate('/companies')}>All companies</MenuItem>
     </Menu>
   );
 }
@@ -121,6 +132,8 @@ export function TopNav() {
             <MenuItem icon={<CalendarDays size={16} />} onClick={() => navigate('/events')}>Events</MenuItem>
             <MenuItem icon={<Newspaper size={16} />} onClick={() => navigate('/articles')}>Articles & newsletters</MenuItem>
             <MenuItem icon={<Bookmark size={16} />} onClick={() => navigate('/saved')}>Saved items</MenuItem>
+            {me!.tenancy === 'multi' && <MenuItem icon={<Building2 size={16} />} onClick={() => navigate('/companies')}>Companies</MenuItem>}
+            {me!.tenancy === 'multi' && me!.isSuperAdmin && <MenuItem icon={<ShieldCheck size={16} />} onClick={() => navigate('/platform')}>Platform admin</MenuItem>}
             <MenuItem icon={<KeyRound size={16} />} onClick={() => navigate('/settings/password')}>Change password</MenuItem>
             <MenuItem
               icon={<Download size={16} />}

@@ -35,6 +35,10 @@ import AdminUsers from './pages/admin/Users';
 import AdminReports from './pages/admin/Reports';
 import AdminAudit from './pages/admin/Audit';
 import AdminAnalytics from './pages/admin/Analytics';
+import Companies from './pages/Companies';
+import CompanyPage from './pages/CompanyPage';
+import CompanySettings from './pages/CompanySettings';
+import Platform from './pages/Platform';
 
 export default function App() {
   const { ready, me, boot } = useAuth();
@@ -100,6 +104,15 @@ export default function App() {
           <Route path="/jobs/:id" element={<JobPage />} />
           <Route path="/org" element={<OrgChart />} />
           <Route path="/settings/password" element={<ChangePassword />} />
+          {me.tenancy === 'multi' && (
+            <>
+              <Route path="/companies" element={<Companies />} />
+              <Route path="/invite" element={<Companies />} />
+              <Route path="/companies/:id" element={<CompanyPage />} />
+              <Route path="/companies/:id/settings" element={<CompanySettings />} />
+              {me.isSuperAdmin && <Route path="/platform" element={<Platform />} />}
+            </>
+          )}
           <Route path="/admin" element={<AdminLayout />}>
             <Route index element={<Navigate to="hierarchy" replace />} />
             <Route path="hierarchy" element={<AdminHierarchy />} />

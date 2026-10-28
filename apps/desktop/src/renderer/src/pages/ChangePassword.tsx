@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Check, Circle } from 'lucide-react';
-import { PASSWORD_RULES, passwordProblem } from '@nexus/shared';
+import { passwordProblem } from '@nexus/shared';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { ErrorText } from '@/components/ui';
+import { PasswordRules } from '@/components/PasswordRules';
 
 export default function ChangePassword({ forced }: { forced?: boolean }) {
   const { refresh, logout } = useAuth();
@@ -47,17 +47,7 @@ export default function ChangePassword({ forced }: { forced?: boolean }) {
             <label className="label">New password</label>
             <input className="input" type="password" value={next} onChange={(e) => setNext(e.target.value)} required />
             {/* Same rules the server enforces (SOT §8). */}
-            <ul className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
-              {PASSWORD_RULES.map((r) => {
-                const ok = r.test(next);
-                return (
-                  <li key={r.id} className={`flex items-center gap-1.5 ${ok ? 'text-zinc-900' : 'text-zinc-500'}`}>
-                    {ok ? <Check size={13} className="text-brand-500" /> : <Circle size={11} />}
-                    {r.label}
-                  </li>
-                );
-              })}
-            </ul>
+            <PasswordRules value={next} />
           </div>
           <div>
             <label className="label">Confirm new password</label>
