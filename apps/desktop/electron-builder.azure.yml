@@ -1,0 +1,13 @@
+# Azure Trusted Signing build: `pnpm build:win:azure`. Same as electron-builder.yml plus signing.
+# Fill in your Trusted Signing account below (not secrets). Credentials come from the environment:
+# AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET (an Entra app with the
+# "Trusted Signing Certificate Profile Signer" role). See SOT §13.
+extends: ./electron-builder.yml
+win:
+  # Must equal the certificate's subject CN. Written into app-update.yml so installed apps
+  # only accept updates signed by this publisher.
+  publisherName: Your Company Ltd
+  azureSignOptions:
+    endpoint: https://eus.codesigning.azure.net
+    codeSigningAccountName: your-signing-account
+    certificateProfileName: your-certificate-profile

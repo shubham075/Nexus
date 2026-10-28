@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { UpdateState } from '../main/updater';
 
 /** The only surface the renderer gets — keep it narrow (SOT §8). */
 const api = {
@@ -16,6 +17,18 @@ const api = {
     return () => {
       ipcRenderer.removeListener('navigate', listener);
     };
+  },
+  update: {
+    get: (): Promise<UpdateState> => ipcRenderer.invoke('update:get'),
+    /** Quits, installs the downloaded update and relaunches. Only call from a user click. */
+    install: (): Promise<void> => ipcRenderer.invoke('update:install'),
+    onStatus: (cb: (state: UpdateState) => void) => {
+      const listener = (_: unknown, state: UpdateState) => cb(state);
+      ipcRenderer.on('update:status', listener);
+      return () => {
+        ipcRenderer.removeListener('update:status', listener);
+      };
+    },
   },
 };
 

@@ -8,6 +8,8 @@ export const env = {
   port: Number(process.env.PORT ?? 4000),
   publicUrl: req('PUBLIC_URL', 'http://localhost:4000'),
   jwtSecret: req('JWT_SECRET'),
+  /** Desktop update feed folder served at /updates/ (latest.yml + installers). Relative to apps/server. */
+  updatesDir: process.env.UPDATES_DIR ?? 'updates',
   s3: {
     endpoint: req('S3_ENDPOINT', 'http://localhost:9000'),
     region: req('S3_REGION', 'us-east-1'),

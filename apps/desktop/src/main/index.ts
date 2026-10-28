@@ -1,24 +1,34 @@
 import { app, BrowserWindow, ipcMain, nativeTheme, Notification, safeStorage, shell } from 'electron';
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { setupAutoUpdate } from './updater';
+
+const trimUrl = (url: string) => url.replace(/\/+$/, '');
 
 /**
- * API server URL, first match wins:
+ * Client config, first match wins per key:
  *   1. nexus.config.json in %APPDATA%\Nexus (per user)  2. nexus.config.json next to Nexus.exe (IT-wide)
- *   3. NEXUS_API_URL env var  4. http://localhost:4000 (dev)
- * File format: { "apiUrl": "https://nexus.yourcompany.internal" }
+ *   3. NEXUS_API_URL / NEXUS_UPDATE_URL env vars  4. http://localhost:4000 (dev); update feed defaults to <apiUrl>/updates/
+ * File format: { "apiUrl": "https://nexus.yourcompany.internal", "updateUrl": "https://files.yourcompany.internal/nexus/" }
+ * `updateUrl` is optional.
  */
-function resolveApiUrl(): string {
+function resolveConfig(): { apiUrl: string; updateUrl: string } {
   const candidates = [join(app.getPath('userData'), 'nexus.config.json'), join(dirname(process.execPath), 'nexus.config.json')];
+  const found: { apiUrl?: string; updateUrl?: string } = {};
   for (const file of candidates) {
     try {
-      const url = JSON.parse(readFileSync(file, 'utf8')).apiUrl;
-      if (typeof url === 'string' && /^https?:\/\//.test(url)) return url.replace(/\/+$/, '');
+      const json = JSON.parse(readFileSync(file, 'utf8'));
+      for (const key of ['apiUrl', 'updateUrl'] as const) {
+        const url = json[key];
+        if (!found[key] && typeof url === 'string' && /^https?:\/\//.test(url)) found[key] = trimUrl(url);
+      }
     } catch {
       /* missing or invalid — try the next source */
     }
   }
-  return process.env.NEXUS_API_URL ?? 'http://localhost:4000';
+  const apiUrl = found.apiUrl ?? trimUrl(process.env.NEXUS_API_URL ?? 'http://localhost:4000');
+  const updateUrl = found.updateUrl ?? (process.env.NEXUS_UPDATE_URL ? trimUrl(process.env.NEXUS_UPDATE_URL) : `${apiUrl}/updates`);
+  return { apiUrl, updateUrl: `${updateUrl}/` };
 }
 
 let API_URL = 'http://localhost:4000';
@@ -99,9 +109,11 @@ ipcMain.on('badge', (_e, count: number) => {
 });
 
 app.whenReady().then(() => {
-  API_URL = resolveApiUrl();
+  const config = resolveConfig();
+  API_URL = config.apiUrl;
   if (process.platform === 'win32') app.setAppUserModelId('com.nexus.desktop');
   createWindow();
+  setupAutoUpdate(config.updateUrl, () => win);
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

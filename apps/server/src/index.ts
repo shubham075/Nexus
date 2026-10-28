@@ -25,6 +25,7 @@ import { jobRoutes } from './routes/jobs';
 import { searchRoutes } from './routes/search';
 import { mediaRoutes } from './routes/media';
 import { reportRoutes } from './routes/reports';
+import { updateRoutes } from './routes/updates';
 
 const app = Fastify({ logger: { level: 'info' } });
 
@@ -58,6 +59,7 @@ app.setErrorHandler((err, req, reply) => {
 });
 
 app.get('/health', async () => ({ ok: true }));
+await app.register(updateRoutes);
 
 await app.register(
   async (api) => {

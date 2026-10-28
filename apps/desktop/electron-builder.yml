@@ -25,3 +25,14 @@ nsis:
   shortcutName: Nexus
   installerIcon: build/icon.ico
   uninstallerIcon: build/icon.ico
+  differentialPackage: true
+# Code signing: unsigned by default. Set CSC_LINK (path/URL/base64 of a .pfx) and CSC_KEY_PASSWORD
+# in the build environment and electron-builder signs Nexus.exe, the installer and the uninstaller.
+# Azure Trusted Signing instead: `pnpm build:win:azure` (electron-builder.azure.yml). See SOT §13.
+# Auto-update feed (SOT §13). Writes latest.yml + the .blockmap next to the installer and bakes
+# app-update.yml into the app. The URL here is only a placeholder: clients use `updateUrl` from
+# nexus.config.json, else <apiUrl>/updates/. Nothing is uploaded (`--publish never`); copy the files to the feed.
+publish:
+  - provider: generic
+    url: https://nexus.yourcompany.internal/updates/
+    useMultipleRangeRequest: false
