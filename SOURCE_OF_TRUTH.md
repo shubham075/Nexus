@@ -265,6 +265,16 @@ The renderer also runs in a normal browser at http://localhost:5183 (web bridge 
 
 ## 12. QA log
 
+### 2026-10-28 — production deployment stack (phase 1c)
+Verified on Docker Desktop 29.1 (Windows), prod stack on 8088/8443 next to the dev stack:
+1. `docker build -f apps/server/Dockerfile .` builds (491 MB; esbuild bundle, prod-only deps, runs as `node`).
+2. `docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.prod up -d` with profiles s3, redis, backup: postgres → `migrate` (exit 0) → api (healthy) → caddy. `GET https://localhost:8443/health/ready` → 200 with db + storage checks; `/metrics` → 404 through the proxy, served on `api:4000`; Socket.IO polling handshake OK and WebSocket upgrade → 101.
+3. `run --rm api seed` created the admin; login and an image upload + fetch through the proxy → 200.
+4. Backup/restore drill: `backup.sh` (dump + media mirror) → dropped the database and deleted the uploaded object → `restore.sh latest --with-media --yes` → users/posts/units counts identical (10/7/12), media fetch 200, login 200, `/health/ready` 200; re-running `migrate` reports no pending migrations.
+5. Bundle run outside Docker with storage and DB down: `/health/live` 200, `/health/ready` 503 naming both failing checks.
+
+Known limits: one API instance only (DAG/RBAC caches are per process); the bundled S3 is SeaweedFS because MinIO images are no longer published.
+
 ### 2026-10-28 — full click-through + API end-to-end pass
 Fixed:
 1. Messaging thread crashed the window after sending (effect returned `scrollIntoView()`'s Promise in new Chromium) → effects use block bodies; global `ErrorBoundary` added so one screen can't blank the app.

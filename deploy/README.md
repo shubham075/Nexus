@@ -139,3 +139,5 @@ nexus up -d --build
 curl -k https://localhost:8443/health/ready
 nexus down            # add -v to also delete the prod volumes
 ```
+
+With non-standard ports the HTTP → HTTPS redirect points at port 443; use the `https://localhost:8443` URL directly.
