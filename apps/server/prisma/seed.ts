@@ -1,6 +1,7 @@
 /**
  * Seeds a demo company with a matrix (multi-parent) hierarchy, system roles, grants,
- * employees and some content. Idempotent only on an empty DB — run `pnpm db:reset` to start over.
+ * employees and some content, plus a tiny second org ("Globex") that only the tenancy tests use.
+ * Idempotent only on an empty DB — run `pnpm db:reset` to start over.
  */
 import { PrismaClient, type OrgNodeType } from '@prisma/client';
 import bcrypt from 'bcryptjs';
@@ -11,15 +12,53 @@ const adminEmail = process.env.SEED_ADMIN_EMAIL ?? 'admin@nexus.local';
 const adminPassword = process.env.SEED_ADMIN_PASSWORD ?? 'Admin@12345';
 const demoPassword = process.env.SEED_DEMO_PASSWORD ?? 'Welcome@123';
 
+/**
+ * Second org used only by the tenancy e2e tests (no cross-org reads/writes): its own root, roles, two
+ * people, a group, event, job, report and audit entry. owner@globex.local holds Super Admin there only.
+ */
+async function seedTestOrg(passwordHash: string) {
+  const orgId = (await prisma.organization.create({ data: { slug: 'globex', name: 'Globex Inc' } })).id;
+  const root = await prisma.orgNode.create({ data: { orgId, name: 'Globex Inc', type: 'COMPANY', isRoot: true } });
+  const ops = await prisma.orgNode.create({ data: { orgId, name: 'Globex Ops', type: 'TEAM', parentEdges: { create: { parentId: root.id } } } });
+  const roles = Object.fromEntries(
+    await Promise.all(
+      SYSTEM_ROLES.map(async (r) => [r.name, await prisma.role.create({ data: { ...r, orgId, isSystem: true } })] as const),
+    ),
+  );
+  const person = (email: string, name: string, nodeId: string) =>
+    prisma.user.create({
+      data: { email, name, headline: 'Globex', passwordHash, memberships: { create: { nodeId, isPrimary: true } }, orgMemberships: { create: { orgId } } },
+    });
+  const owner = await person('owner@globex.local', 'Gina Globex', root.id);
+  const staff = await person('staff@globex.local', 'Sam Globex', ops.id);
+  await prisma.roleGrant.createMany({
+    data: [
+      { roleId: roles['Employee'].id, nodeId: root.id },
+      { roleId: roles['Super Admin'].id, nodeId: root.id, userId: owner.id },
+    ],
+  });
+  await prisma.group.create({
+    data: { orgId, name: 'Globex Insiders', privacy: 'PUBLIC', creatorId: owner.id, nodeId: ops.id, members: { create: { userId: owner.id, role: 'ADMIN' } } },
+  });
+  await prisma.event.create({ data: { orgId, title: 'Globex Offsite', startsAt: new Date(Date.now() + 9 * 864e5), organizerId: owner.id, nodeId: ops.id } });
+  await prisma.job.create({ data: { orgId, title: 'Globex Ops Lead', description: 'Run Globex operations.', posterId: owner.id, nodeId: ops.id } });
+  await prisma.report.create({ data: { orgId, reporterId: owner.id, targetUserId: staff.id, reason: 'OTHER', details: 'Globex test report' } });
+  await prisma.auditLog.create({ data: { orgId, actorId: owner.id, action: 'globex.seed' } });
+}
+
 async function main() {
   if (await prisma.user.count()) {
     console.log('Database already seeded — skipping. Use `pnpm db:reset` to reseed.');
     return;
   }
 
+  // ───────── Organization (SOT §14) ─────────
+  const org = await prisma.organization.create({ data: { slug: 'nexus', name: 'Nexus Corp', industry: 'Software' } });
+  const orgId = org.id;
+
   // ───────── Hierarchy (DAG) ─────────
   const node = (name: string, type: OrgNodeType, description?: string, isRoot = false) =>
-    prisma.orgNode.create({ data: { name, type, description, isRoot } });
+    prisma.orgNode.create({ data: { orgId, name, type, description, isRoot } });
   const co = await node('Nexus Corp', 'COMPANY', 'The whole company', true);
   const eng = await node('Engineering', 'DIVISION');
   const prod = await node('Product', 'DIVISION');
@@ -43,7 +82,7 @@ async function main() {
   // ───────── Roles ─────────
   const roles = Object.fromEntries(
     await Promise.all(
-      SYSTEM_ROLES.map(async (r) => [r.name, await prisma.role.create({ data: { ...r, isSystem: true } })] as const),
+      SYSTEM_ROLES.map(async (r) => [r.name, await prisma.role.create({ data: { ...r, orgId, isSystem: true } })] as const),
     ),
   );
 
@@ -54,6 +93,7 @@ async function main() {
     data: {
       email: adminEmail, name: 'Ava Admin', headline: 'Platform Administrator', passwordHash: adminHash, isSuperAdmin: true,
       location: 'Bengaluru', memberships: { create: [{ nodeId: people.id, title: 'Platform Admin', isPrimary: true }] },
+      orgMemberships: { create: { orgId, isOrgAdmin: true } },
     },
   });
 
@@ -75,6 +115,7 @@ async function main() {
         email: d.email, name: d.name, headline: d.headline, passwordHash: demoHash, location: 'Bengaluru',
         about: `${d.headline} at Nexus Corp.`,
         memberships: { create: d.nodes.map((nodeId, i) => ({ nodeId, title: d.title, isPrimary: i === 0 })) },
+        orgMemberships: { create: { orgId } },
         skills: { create: d.skills.map((name) => ({ name })) },
         experiences: { create: [{ title: d.title, company: 'Nexus Corp', startDate: new Date('2022-04-01') }] },
       },
@@ -150,7 +191,7 @@ async function main() {
 
   const group = await prisma.group.create({
     data: {
-      name: 'Frontend Guild', description: 'All things web & mobile UI', privacy: 'PUBLIC', creatorId: users.neha,
+      orgId, name: 'Frontend Guild', description: 'All things web & mobile UI', privacy: 'PUBLIC', creatorId: users.neha,
       members: { create: [{ userId: users.neha, role: 'ADMIN' }, { userId: users.meera, role: 'MEMBER' }, { userId: users.sara, role: 'MEMBER' }] },
     },
   });
@@ -158,7 +199,7 @@ async function main() {
 
   const event = await prisma.event.create({
     data: {
-      title: 'Engineering All-Hands', description: 'Quarterly roadmap and demos.', startsAt: new Date(Date.now() + 5 * 864e5),
+      orgId, title: 'Engineering All-Hands', description: 'Quarterly roadmap and demos.', startsAt: new Date(Date.now() + 5 * 864e5),
       isOnline: true, link: 'https://meet.example.com/all-hands', organizerId: users.priya, nodeId: eng.id,
       rsvps: { create: [{ userId: users.priya, status: 'GOING' }, { userId: users.rahul, status: 'GOING' }] },
     },
@@ -167,11 +208,13 @@ async function main() {
 
   const job = await prisma.job.create({
     data: {
-      title: 'Senior Mobile Engineer', description: 'Build the next generation of our mobile apps with the Mobile Squad.',
+      orgId, title: 'Senior Mobile Engineer', description: 'Build the next generation of our mobile apps with the Mobile Squad.',
       location: 'Bengaluru', workplace: 'HYBRID', skills: ['React Native', 'TypeScript'], posterId: users.vikram, nodeId: mobile.id,
     },
   });
   await prisma.post.create({ data: { authorId: users.vikram, kind: 'JOB', jobId: job.id, body: `We're hiring: ${job.title}` } });
+
+  await seedTestOrg(demoHash);
 
   console.log(`Seeded. Admin: ${adminEmail} / (SEED_ADMIN_PASSWORD). Demo users: *@nexus.local / (SEED_DEMO_PASSWORD).`);
 }

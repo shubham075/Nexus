@@ -10,8 +10,8 @@ datasource db {
 // ───────────────────────── Identity ─────────────────────────
 
 model User {
-  id                 String    @id @default(cuid())
-  email              String    @unique
+  id                 String                   @id @default(cuid())
+  email              String                   @unique
   passwordHash       String
   name               String
   headline           String?
@@ -20,13 +20,13 @@ model User {
   avatarUrl          String?
   coverUrl           String?
   pronouns           String?
-  openTo             String[]  @default([])
-  isSuperAdmin       Boolean   @default(false)
-  isActive           Boolean   @default(true)
-  mustChangePassword Boolean   @default(false)
+  openTo             String[]                 @default([])
+  isSuperAdmin       Boolean                  @default(false)
+  isActive           Boolean                  @default(true)
+  mustChangePassword Boolean                  @default(false)
   lastSeenAt         DateTime?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
   search             Unsupported("tsvector")? @default(dbgenerated()) /// generated column + GIN index, see migration full_text_search
 
   memberships        Membership[]
@@ -34,21 +34,21 @@ model User {
   experiences        Experience[]
   educations         Education[]
   skills             Skill[]
-  endorsementsGiven  Endorsement[]  @relation("endorser")
+  endorsementsGiven  Endorsement[]            @relation("endorser")
   posts              Post[]
   comments           Comment[]
   reactions          Reaction[]
   savedPosts         SavedPost[]
   pollVotes          PollVote[]
-  sentRequests       Connection[]   @relation("requester")
-  receivedRequests   Connection[]   @relation("addressee")
-  following          Follow[]       @relation("follower")
-  followers          Follow[]       @relation("followee")
+  sentRequests       Connection[]             @relation("requester")
+  receivedRequests   Connection[]             @relation("addressee")
+  following          Follow[]                 @relation("follower")
+  followers          Follow[]                 @relation("followee")
   hashtagFollows     HashtagFollow[]
   conversationMember ConversationMember[]
   messages           Message[]
-  notifications      Notification[] @relation("recipient")
-  notificationsSent  Notification[] @relation("actor")
+  notifications      Notification[]           @relation("recipient")
+  notificationsSent  Notification[]           @relation("actor")
   groupMembers       GroupMember[]
   groupsCreated      Group[]
   events             Event[]
@@ -59,12 +59,13 @@ model User {
   jobs               Job[]
   jobApplications    JobApplication[]
   savedJobs          SavedJob[]
-  reports            Report[]       @relation("reporter")
-  reportsReviewed    Report[]       @relation("reviewer")
+  reports            Report[]                 @relation("reporter")
+  reportsReviewed    Report[]                 @relation("reviewer")
   auditLogs          AuditLog[]
-  profileViews       ProfileView[]  @relation("viewed")
-  profileViewsMade   ProfileView[]  @relation("viewer")
+  profileViews       ProfileView[]            @relation("viewed")
+  profileViewsMade   ProfileView[]            @relation("viewer")
   authSessions       AuthSession[]
+  orgMemberships     OrgMember[]
 
   @@index([search], type: Gin)
 }
@@ -77,7 +78,7 @@ model AuthSession {
   refreshHash String    @unique
   /// Hash of the token rotated out last; presenting it again means theft → session revoked.
   prevHash    String?   @unique
-  method      String    // "password" | "sso:<provider>"
+  method      String // "password" | "sso:<provider>"
   userAgent   String?
   ip          String?
   expiresAt   DateTime
@@ -90,16 +91,82 @@ model AuthSession {
 
 /// In-flight OIDC sign-in: created at /auth/sso/:id/start, completed by the IdP callback, consumed by /auth/sso/exchange.
 model SsoRequest {
-  id            String   @id // the OIDC `state`
-  provider      String
-  redirectUri   String   // loopback URL of the desktop app
-  challenge     String   // PKCE S256 challenge from the desktop app
-  nonce         String
-  codeVerifier  String   // PKCE verifier for the server ↔ IdP leg
-  codeHash      String?  @unique
-  userId        String?
-  expiresAt     DateTime
-  createdAt     DateTime @default(now())
+  id           String   @id // the OIDC `state`
+  provider     String
+  redirectUri  String // loopback URL of the desktop app
+  challenge    String // PKCE S256 challenge from the desktop app
+  nonce        String
+  codeVerifier String // PKCE verifier for the server ↔ IdP leg
+  codeHash     String?  @unique
+  userId       String?
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+}
+
+// ───────────────────────── Organizations (SOT §14) ─────────────────────────
+
+enum JoinPolicy {
+  AUTO
+  APPROVAL
+  INVITE
+}
+
+enum OrgMemberStatus {
+  ACTIVE
+  PENDING
+  LEFT
+}
+
+/// A company (tenant). Company-scoped rows carry its id; see SOT D21.
+model Organization {
+  id         String     @id @default(cuid())
+  slug       String     @unique
+  name       String
+  logoUrl    String?
+  coverUrl   String?
+  about      String?
+  website    String?
+  industry   String?
+  size       String?
+  joinPolicy JoinPolicy @default(INVITE)
+  createdAt  DateTime   @default(now())
+
+  members     OrgMember[]
+  domains     OrgDomain[]
+  nodes       OrgNode[]
+  roles       Role[]
+  auditLogs   AuditLog[]
+  reports     Report[]
+  groups      Group[]
+  events      Event[]
+  jobs        Job[]
+  newsletters Newsletter[]
+}
+
+model OrgMember {
+  orgId      String
+  userId     String
+  status     OrgMemberStatus @default(ACTIVE)
+  isOrgAdmin Boolean         @default(false)
+  joinedAt   DateTime        @default(now())
+  org        Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([orgId, userId])
+  @@index([userId])
+}
+
+/// Email domain a company claims; verification flow is phase 2b.
+model OrgDomain {
+  id                String       @id @default(cuid())
+  orgId             String
+  domain            String       @unique
+  verificationToken String
+  verifiedAt        DateTime?
+  createdAt         DateTime     @default(now())
+  org               Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
 }
 
 // ───────────────────────── Hierarchy DAG ─────────────────────────
@@ -115,12 +182,14 @@ enum OrgNodeType {
 }
 
 model OrgNode {
-  id          String      @id @default(cuid())
+  id          String       @id @default(cuid())
+  orgId       String
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   name        String
-  type        OrgNodeType @default(TEAM)
+  type        OrgNodeType  @default(TEAM)
   description String?
-  isRoot      Boolean     @default(false)
-  createdAt   DateTime    @default(now())
+  isRoot      Boolean      @default(false)
+  createdAt   DateTime     @default(now())
 
   parentEdges OrgEdge[]    @relation("child")
   childEdges  OrgEdge[]    @relation("parent")
@@ -129,6 +198,8 @@ model OrgNode {
   jobs        Job[]
   groups      Group[]
   events      Event[]
+
+  @@index([orgId])
 }
 
 model OrgEdge {
@@ -158,13 +229,17 @@ model Membership {
 // ───────────────────────── RBAC ─────────────────────────
 
 model Role {
-  id          String      @id @default(cuid())
-  name        String      @unique
+  id          String       @id @default(cuid())
+  orgId       String
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name        String
   description String?
   permissions String[]
-  isSystem    Boolean     @default(false)
-  createdAt   DateTime    @default(now())
+  isSystem    Boolean      @default(false)
+  createdAt   DateTime     @default(now())
   grants      RoleGrant[]
+
+  @@unique([orgId, name])
 }
 
 /// userId = null → node grant (all members of node + descendants). Scope is always the sub-DAG at nodeId.
@@ -208,15 +283,15 @@ model Education {
 }
 
 model Skill {
-  id           String        @id @default(cuid())
+  id           String                   @id @default(cuid())
   userId       String
   name         String
-  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
   endorsements Endorsement[]
   search       Unsupported("tsvector")? @default(dbgenerated()) /// generated column + GIN index, see migration full_text_search
 
-  @@index([search], type: Gin)
   @@unique([userId, name])
+  @@index([search], type: Gin)
 }
 
 model Endorsement {
@@ -297,37 +372,37 @@ enum ReactionType {
 }
 
 model Post {
-  id           String       @id @default(cuid())
-  authorId     String
-  kind         PostKind     @default(TEXT)
-  body         String       @default("")
-  celebration  String?
-  repostOfId   String?
-  articleId    String?      @unique
-  eventId      String?
-  jobId        String?
-  groupId      String?
-  isPinned     Boolean      @default(false)
-  isHidden     Boolean      @default(false)
+  id          String                   @id @default(cuid())
+  authorId    String
+  kind        PostKind                 @default(TEXT)
+  body        String                   @default("")
+  celebration String?
+  repostOfId  String?
+  articleId   String?                  @unique
+  eventId     String?
+  jobId       String?
+  groupId     String?
+  isPinned    Boolean                  @default(false)
+  isHidden    Boolean                  @default(false)
   /// When a moderator hid it; purged after RETENTION_HIDDEN_CONTENT_DAYS (SOT §11).
-  hiddenAt     DateTime?
-  editedAt     DateTime?
-  createdAt    DateTime     @default(now())
-  author       User         @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  repostOf     Post?        @relation("reposts", fields: [repostOfId], references: [id], onDelete: SetNull)
-  reposts      Post[]       @relation("reposts")
-  article      Article?     @relation(fields: [articleId], references: [id], onDelete: Cascade)
-  event        Event?       @relation(fields: [eventId], references: [id], onDelete: SetNull)
-  job          Job?         @relation(fields: [jobId], references: [id], onDelete: SetNull)
-  group        Group?       @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  media        PostMedia[]
-  poll         Poll?
-  reactions    Reaction[]
-  comments     Comment[]
-  savedBy      SavedPost[]
-  hashtags     PostHashtag[]
-  reports      Report[]
-  search       Unsupported("tsvector")? @default(dbgenerated()) /// generated column + GIN index, see migration full_text_search
+  hiddenAt    DateTime?
+  editedAt    DateTime?
+  createdAt   DateTime                 @default(now())
+  author      User                     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  repostOf    Post?                    @relation("reposts", fields: [repostOfId], references: [id], onDelete: SetNull)
+  reposts     Post[]                   @relation("reposts")
+  article     Article?                 @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  event       Event?                   @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  job         Job?                     @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  group       Group?                   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  media       PostMedia[]
+  poll        Poll?
+  reactions   Reaction[]
+  comments    Comment[]
+  savedBy     SavedPost[]
+  hashtags    PostHashtag[]
+  reports     Report[]
+  search      Unsupported("tsvector")? @default(dbgenerated()) /// generated column + GIN index, see migration full_text_search
 
   @@index([search], type: Gin)
   @@index([createdAt])
@@ -337,13 +412,13 @@ model Post {
 }
 
 model PostMedia {
-  id        String @id @default(cuid())
+  id        String  @id @default(cuid())
   postId    String
   url       String
   mimeType  String
   fileName  String?
-  sortOrder Int    @default(0)
-  post      Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  sortOrder Int     @default(0)
+  post      Post    @relation(fields: [postId], references: [id], onDelete: Cascade)
 }
 
 model Poll {
@@ -520,17 +595,20 @@ enum GroupRole {
 }
 
 model Group {
-  id          String        @id @default(cuid())
+  id          String                   @id @default(cuid())
   name        String
   description String?
   rules       String?
-  privacy     GroupPrivacy  @default(PUBLIC)
+  privacy     GroupPrivacy             @default(PUBLIC)
   coverUrl    String?
+  /// null = public/personal (SOT §14.2)
+  orgId       String?
+  org         Organization?            @relation(fields: [orgId], references: [id], onDelete: Cascade)
   nodeId      String?
   creatorId   String
-  createdAt   DateTime      @default(now())
-  node        OrgNode?      @relation(fields: [nodeId], references: [id], onDelete: SetNull)
-  creator     User          @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  createdAt   DateTime                 @default(now())
+  node        OrgNode?                 @relation(fields: [nodeId], references: [id], onDelete: SetNull)
+  creator     User                     @relation(fields: [creatorId], references: [id], onDelete: Cascade)
   members     GroupMember[]
   posts       Post[]
   search      Unsupported("tsvector")? @default(dbgenerated()) /// generated column + GIN index, see migration full_text_search
@@ -558,20 +636,23 @@ enum RsvpStatus {
 }
 
 model Event {
-  id          String      @id @default(cuid())
+  id          String                   @id @default(cuid())
   title       String
   description String?
   startsAt    DateTime
   endsAt      DateTime?
-  isOnline    Boolean     @default(true)
+  isOnline    Boolean                  @default(true)
   location    String?
   link        String?
   coverUrl    String?
+  /// null = public/personal (SOT §14.2)
+  orgId       String?
+  org         Organization?            @relation(fields: [orgId], references: [id], onDelete: Cascade)
   nodeId      String?
   organizerId String
-  createdAt   DateTime    @default(now())
-  node        OrgNode?    @relation(fields: [nodeId], references: [id], onDelete: SetNull)
-  organizer   User        @relation(fields: [organizerId], references: [id], onDelete: Cascade)
+  createdAt   DateTime                 @default(now())
+  node        OrgNode?                 @relation(fields: [nodeId], references: [id], onDelete: SetNull)
+  organizer   User                     @relation(fields: [organizerId], references: [id], onDelete: Cascade)
   rsvps       EventRsvp[]
   posts       Post[]
   search      Unsupported("tsvector")? @default(dbgenerated()) /// generated column + GIN index, see migration full_text_search
@@ -594,6 +675,9 @@ model EventRsvp {
 
 model Newsletter {
   id          String                   @id @default(cuid())
+  /// null = personal newsletter (SOT §14.2)
+  orgId       String?
+  org         Organization?            @relation(fields: [orgId], references: [id], onDelete: Cascade)
   title       String
   description String?
   ownerId     String
@@ -614,16 +698,16 @@ model NewsletterSubscription {
 }
 
 model Article {
-  id           String      @id @default(cuid())
+  id           String                   @id @default(cuid())
   authorId     String
   newsletterId String?
   title        String
   body         String
   coverUrl     String?
-  publishedAt  DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  author       User        @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  newsletter   Newsletter? @relation(fields: [newsletterId], references: [id], onDelete: SetNull)
+  publishedAt  DateTime                 @default(now())
+  updatedAt    DateTime                 @updatedAt
+  author       User                     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  newsletter   Newsletter?              @relation(fields: [newsletterId], references: [id], onDelete: SetNull)
   post         Post?
   search       Unsupported("tsvector")? @default(dbgenerated()) /// generated column + GIN index, see migration full_text_search
 
@@ -647,19 +731,22 @@ enum ApplicationStatus {
 }
 
 model Job {
-  id           String           @id @default(cuid())
+  id           String                   @id @default(cuid())
   title        String
   description  String
   location     String?
-  workplace    String           @default("ONSITE")
-  employment   String           @default("FULL_TIME")
-  skills       String[]         @default([])
-  status       JobStatus        @default(OPEN)
+  workplace    String                   @default("ONSITE")
+  employment   String                   @default("FULL_TIME")
+  skills       String[]                 @default([])
+  status       JobStatus                @default(OPEN)
+  /// null = public/personal (SOT §14.2)
+  orgId        String?
+  org          Organization?            @relation(fields: [orgId], references: [id], onDelete: Cascade)
   nodeId       String?
   posterId     String
-  createdAt    DateTime         @default(now())
-  node         OrgNode?         @relation(fields: [nodeId], references: [id], onDelete: SetNull)
-  poster       User             @relation(fields: [posterId], references: [id], onDelete: Cascade)
+  createdAt    DateTime                 @default(now())
+  node         OrgNode?                 @relation(fields: [nodeId], references: [id], onDelete: SetNull)
+  poster       User                     @relation(fields: [posterId], references: [id], onDelete: Cascade)
   applications JobApplication[]
   savedBy      SavedJob[]
   posts        Post[]
@@ -701,6 +788,9 @@ enum ReportStatus {
 
 model Report {
   id           String       @id @default(cuid())
+  /// The org whose moderators review it.
+  orgId        String
+  org          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   reporterId   String
   postId       String?
   commentId    String?
@@ -717,17 +807,19 @@ model Report {
   post         Post?        @relation(fields: [postId], references: [id], onDelete: Cascade)
   comment      Comment?     @relation(fields: [commentId], references: [id], onDelete: Cascade)
 
-  @@index([status, createdAt])
+  @@index([orgId, status, createdAt])
 }
 
 model AuditLog {
-  id        String   @id @default(cuid())
+  id        String       @id @default(cuid())
+  orgId     String
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   actorId   String
   action    String
   target    String?
   meta      Json?
-  createdAt DateTime @default(now())
-  actor     User     @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  createdAt DateTime     @default(now())
+  actor     User         @relation(fields: [actorId], references: [id], onDelete: Cascade)
 
-  @@index([createdAt])
+  @@index([orgId, createdAt])
 }
