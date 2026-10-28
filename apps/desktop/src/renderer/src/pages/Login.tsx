@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { APP_NAME } from '@nexus/shared';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { isWeb } from '@/lib/webBridge';
 import { ErrorText } from '@/components/ui';
 
 export default function Login() {
@@ -15,7 +16,9 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    // SSO buttons appear only when the server has OIDC providers configured.
+    // SSO buttons appear only when the server has OIDC providers configured, and only on desktop:
+    // the loopback flow needs the Electron main process (the web redirect flow is phase 2).
+    if (isWeb) return;
     api.get<{ id: string; label: string }[]>('/auth/sso/providers').then(setProviders, () => {});
   }, []);
 

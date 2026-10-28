@@ -1,0 +1,18 @@
+# Used instead of the root .dockerignore when building deploy/web/Dockerfile (BuildKit).
+**/node_modules
+**/dist
+**/dist-web
+**/out
+**/release
+**/.env
+**/.env.*
+**/*.log
+.git
+.claude
+apps/server
+apps/desktop/e2e
+apps/desktop/build
+deploy/*
+!deploy/web
+docker-compose.yml
+*.md

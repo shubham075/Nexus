@@ -16,7 +16,7 @@ Admins model the company as a **hierarchy DAG** (units may report to several par
 4. [Daily development](#daily-development)
 5. [Demo accounts](#demo-accounts)
 6. [Building the Windows installer](#building-the-windows-installer)
-7. [Deploying for the company](#deploying-for-the-company) (incl. [Single sign-on](#single-sign-on-oidc))
+7. [Deploying for the company](#deploying-for-the-company) (incl. [Single sign-on](#single-sign-on-oidc), [Web client](#web-client))
 8. [Project status: phases done / to do](#project-status-phases-done--to-do)
 9. [Working on this project with Claude](#working-on-this-project-with-claude)
 10. [Troubleshooting](#troubleshooting)
@@ -264,6 +264,16 @@ OIDC_GOOGLE_ALLOWED_DOMAINS="yourcompany.com"
 
 Restart the API. The sign-in screen then shows **Continue with Microsoft/Google**. An invited user who signs in by SSO before setting a password has their temporary password retired; **Admin → Employees → Reset password** gives them one again.
 
+### Web client
+The desktop renderer also runs as a static website (groundwork for phase 2d). In a browser `apps/desktop/src/renderer/src/lib/webBridge.ts` stands in for Electron's preload: tokens in `localStorage` (the phase-2 web choice; the strict CSP below limits who can read them), browser notifications (permission is asked on the first click; denied or unsupported → silently skipped), unread badge in the tab title, no auto-update, and **no SSO buttons** (the loopback flow is desktop-only until a web redirect flow exists).
+
+- **Dev:** `pnpm dev:server`, then `pnpm --filter @nexus/desktop dev:web` → http://localhost:5183 (uses `VITE_API_URL` or `http://localhost:4000`).
+- **Build:** `pnpm build:web` → `apps/desktop/dist-web/` (hash routing, relative paths). Preview with `pnpm --filter @nexus/desktop preview:web` (http://localhost:5184).
+- **API URL at runtime:** the app fetches `config.json` next to `index.html`, `{ "apiUrl": "https://api.example.com" }`, so one build serves every environment. Without it, the build-time `VITE_API_URL` (or `http://localhost:4000`) is used.
+- **Deploy:** the prod compose builds the `web` service from [`deploy/web/Dockerfile`](deploy/web/Dockerfile) (Caddy serving `dist-web` on :8080; it writes `config.json` from `NEXUS_API_URL` = `PUBLIC_URL` at start). The front Caddy serves it at `NEXUS_WEB_DOMAIN` (default `app.<NEXUS_DOMAIN>`, needs its own DNS record/certificate) and the API stays at `NEXUS_DOMAIN`. Caching: `assets/*` (content-hashed) `immutable` for a year, `index.html` `no-cache`, `config.json` `no-store`; unknown paths fall back to `index.html`.
+- **CSP** (header from the web container, [`deploy/web/Caddyfile`](deploy/web/Caddyfile)): `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src/media-src 'self' data: blob: https:; connect-src 'self' <NEXUS_API_URL>` (an `https:` origin also allows its `wss:` Socket.IO connection), `frame-ancestors 'none'; object-src 'none'`. The looser `<meta>` CSP in `index.html` is for Electron; browsers enforce both, so the header wins.
+- **CORS:** the API currently reflects any origin (`@fastify/cors` with `origin: true`); auth is a bearer token, not a cookie, so this does not expose sessions. Before public launch restrict it to the web origin (e.g. a `CORS_ORIGINS` env list) and keep `credentials` off unless refresh tokens move to an httpOnly cookie.
+
 ---
 
 ## Project status: phases done / to do
@@ -310,6 +320,8 @@ Legend: ✅ done · 🟡 partly done · ⬜ not started
 - ⬜ **2b: accounts & companies**: ✅ email service (`lib/mailer.ts` SMTP + `lib/emailTemplates.ts`, Mailpit dev inbox); ⬜ public sign-up + email verification, password reset by email, company creation, domain verification, join policies, company pages + follow, platform admin
 - ⬜ **2c: visibility & feed**: post visibility (public / connections / company / units), visibility-aware feed, search, notifications and media
 - ⬜ **2d: public surface**: public jobs on company pages, public groups/events, web client deployment, abuse controls
+  - ✅ web client groundwork: `pnpm build:web`, runtime `config.json`, browser bridge, `deploy/web` image + `app.<domain>` in the prod compose, CI build ([Web client](#web-client))
+  - ⬜ web SSO redirect flow, CORS allow-list, cookie-based refresh tokens
 - ⬜ **2e: later**: recommendations, premium, macOS/Linux builds, mobile clients
 
 Phase-1 product decisions are settled (D17–D19, 2026-10-29): messages expire after 2 years; managers see analytics for their own units; no HRIS sync for now.
