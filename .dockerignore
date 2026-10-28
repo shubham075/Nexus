@@ -1,0 +1,14 @@
+**/node_modules
+**/dist
+**/out
+**/release
+**/.env
+**/.env.*
+!**/.env.example
+**/*.log
+.git
+.claude
+apps/desktop
+deploy
+docker-compose.yml
+*.md

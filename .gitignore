@@ -5,3 +5,10 @@ release
 .env
 *.log
 .DS_Store
+
+# production deploy (secrets and local data)
+deploy/.env.prod
+deploy/backups
+deploy/updates
+deploy/caddy/certs/*
+!deploy/caddy/certs/.gitkeep
