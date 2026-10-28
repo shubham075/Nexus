@@ -23,6 +23,8 @@ export const env = {
   /** SOT D23: single = one internal company (no org switcher); multi = public SaaS with many orgs. */
   tenancy: tenancy as 'single' | 'multi',
   jwtSecret,
+  /** Where links in emails point: the web client (hash routes); the desktop app accepts the pasted link too. */
+  appUrl: (process.env.APP_URL || 'http://localhost:5183').replace(/\/$/, ''),
   media: {
     /** HMAC key for signed media URLs; derived from JWT_SECRET when unset (SOT §8). */
     urlSecret: process.env.MEDIA_URL_SECRET || createHmac('sha256', jwtSecret).update('nexus-media-url').digest('hex'),

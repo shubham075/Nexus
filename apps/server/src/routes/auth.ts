@@ -12,9 +12,31 @@ import { callbackUrl, emailFromClaims, isLoopbackRedirect, oidcClient, providers
 import { permissionsOf } from '../rbac';
 import { env } from '../lib/env';
 import { orgsOf } from '../lib/org';
+import { appLink, consumeEmailToken, issueEmailToken, TOKEN_TTL_MS, tokenFrom } from '../lib/emailTokens';
+import { sendMail } from '../lib/mailer';
+import { resetPasswordTemplate, verifyEmailTemplate, type RenderedMail } from '../lib/emailTemplates';
 
 const SSO_START_TTL = 10 * 60_000;
 const SSO_CODE_TTL = 2 * 60_000;
+
+const emailBody = z.object({ email: z.string().trim().email().max(254).transform((e) => e.toLowerCase()) });
+const tokenBody = z.object({ token: z.string().min(1).max(500).transform(tokenFrom) });
+
+/** Mail failures are logged, not shown: the response must not reveal whether an account exists. */
+async function mailSafely(log: { error: (o: unknown, m: string) => void }, to: string, mail: RenderedMail) {
+  try {
+    await sendMail({ to, ...mail });
+  } catch (e) {
+    log.error(e, 'transactional mail failed');
+  }
+}
+
+async function sendVerification(log: Parameters<typeof mailSafely>[0], user: { id: string; email: string; name: string }) {
+  const token = await issueEmailToken(user.id, 'VERIFY_EMAIL');
+  await mailSafely(log, user.email, verifyEmailTemplate({
+    name: user.name, url: appLink('verify-email', token), expiresInHours: TOKEN_TTL_MS.VERIFY_EMAIL / 3_600_000,
+  }));
+}
 
 export const authRoutes: FastifyPluginAsync = async (app) => {
   app.post('/login', { config: { rateLimit: limits.login } }, async (req) => {
@@ -23,7 +45,79 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     if (!user || !user.isActive || !(await bcrypt.compare(password, user.passwordHash))) {
       throw new HttpError(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect');
     }
+    // Checked after the password, so it reveals nothing to someone who doesn't know it.
+    if (!user.emailVerifiedAt) throw new HttpError(403, 'EMAIL_NOT_VERIFIED', 'Verify your email first. Check your inbox for the link.');
     return createSession(app, req, user.id, 'password');
+  });
+
+  /** Public: what the sign-in screen may offer (SOT D23: sign-up only in multi mode). */
+  app.get('/config', async () => ({ tenancy: env.tenancy, signup: env.tenancy === 'multi' }));
+
+  // ───────── Public sign-up + email verification (SOT D22, multi mode only) ─────────
+  app.post('/signup', { config: { rateLimit: limits.signup } }, async (req) => {
+    if (env.tenancy !== 'multi') throw new HttpError(403, 'SIGNUP_DISABLED', 'Sign-up is not available. Ask your administrator for an account.');
+    const body = parse(
+      emailBody.extend({ name: z.string().trim().min(1).max(120), password: z.string().max(200) }),
+      req.body,
+    );
+    const problem = passwordProblem(body.password);
+    if (problem) throw new HttpError(400, 'WEAK_PASSWORD', problem);
+    const existing = await prisma.user.findUnique({ where: { email: body.email } });
+    if (existing) {
+      // Same answer either way; an unverified account just gets a fresh link.
+      if (!existing.emailVerifiedAt && existing.isActive) await sendVerification(req.log, existing);
+      return { ok: true };
+    }
+    const user = await prisma.user.create({
+      data: { email: body.email, name: body.name, passwordHash: await bcrypt.hash(body.password, 10), emailVerifiedAt: null },
+    });
+    await sendVerification(req.log, user);
+    return { ok: true };
+  });
+
+  app.post('/resend-verification', { config: { rateLimit: limits.emailLink } }, async (req) => {
+    const { email } = parse(emailBody, req.body);
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (user && !user.emailVerifiedAt && user.isActive) await sendVerification(req.log, user);
+    return { ok: true };
+  });
+
+  /** Confirms the address and signs the user in. */
+  app.post('/verify-email', { config: { rateLimit: limits.redeem } }, async (req) => {
+    const { token } = parse(tokenBody, req.body);
+    const userId = await consumeEmailToken(token, 'VERIFY_EMAIL');
+    const user = await prisma.user.update({ where: { id: userId }, data: { emailVerifiedAt: new Date() } });
+    if (!user.isActive) throw new HttpError(401, 'INVALID_CREDENTIALS', 'Account disabled');
+    return createSession(app, req, user.id, 'email');
+  });
+
+  // ───────── Password reset by email (both modes) ─────────
+  app.post('/forgot-password', { config: { rateLimit: limits.emailLink } }, async (req) => {
+    const { email } = parse(emailBody, req.body);
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (user?.isActive) {
+      const token = await issueEmailToken(user.id, 'RESET_PASSWORD');
+      await mailSafely(req.log, user.email, resetPasswordTemplate({
+        name: user.name, url: appLink('reset-password', token), expiresInMinutes: TOKEN_TTL_MS.RESET_PASSWORD / 60_000,
+      }));
+    }
+    return { ok: true };
+  });
+
+  /** Sets a new password and signs the user out everywhere. */
+  app.post('/reset-password', { config: { rateLimit: limits.redeem } }, async (req) => {
+    const body = parse(tokenBody.extend({ newPassword: z.string().max(200) }), req.body);
+    const problem = passwordProblem(body.newPassword);
+    if (problem) throw new HttpError(400, 'WEAK_PASSWORD', problem);
+    const userId = await consumeEmailToken(body.token, 'RESET_PASSWORD');
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    await prisma.user.update({
+      where: { id: userId },
+      // The mail reached its owner, so the address is verified too.
+      data: { passwordHash: await bcrypt.hash(body.newPassword, 10), mustChangePassword: false, emailVerifiedAt: user.emailVerifiedAt ?? new Date() },
+    });
+    await revokeUserSessions(userId);
+    return { ok: true };
   });
 
   app.post('/refresh', { config: { rateLimit: limits.refresh } }, async (req) => {

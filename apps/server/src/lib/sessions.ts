@@ -83,4 +83,6 @@ export async function pruneSessions(): Promise<void> {
   const cutoff = new Date(Date.now() - 7 * 86_400_000);
   await prisma.authSession.deleteMany({ where: { OR: [{ expiresAt: { lt: cutoff } }, { revokedAt: { lt: cutoff } }] } });
   await prisma.ssoRequest.deleteMany({ where: { expiresAt: { lt: new Date() } } });
+  await prisma.emailToken.deleteMany({ where: { expiresAt: { lt: cutoff } } });
+  await prisma.orgInvite.deleteMany({ where: { acceptedAt: null, expiresAt: { lt: cutoff } } });
 }

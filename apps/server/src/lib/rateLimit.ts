@@ -38,5 +38,11 @@ export const limits = {
   login: { max: 10, timeWindow: '1 minute', hook: 'preHandler' as const, keyGenerator: (req: FastifyRequest) => `login:${req.ip}:${email(req)}` },
   refresh: { max: 30, timeWindow: '1 minute', keyGenerator: (req: FastifyRequest) => `refresh:${req.ip}` },
   changePassword: { max: 5, timeWindow: '1 minute' },
+  /** Sign-up and "email me a link" requests: per IP and per address, so one inbox can't be flooded. */
+  signup: { max: 30, timeWindow: '1 hour', hook: 'preHandler' as const, keyGenerator: (req: FastifyRequest) => `signup:${req.ip}` },
+  emailLink: { max: 3, timeWindow: '15 minutes', hook: 'preHandler' as const, keyGenerator: (req: FastifyRequest) => `mail:${email(req)}` },
+  /** Redeeming a token (verify / reset / invite): guessing is hopeless at 256 bits, this just caps abuse. */
+  redeem: { max: 20, timeWindow: '1 minute', keyGenerator: (req: FastifyRequest) => `redeem:${req.ip}` },
+  companyWrite: { max: 30, timeWindow: '1 minute' },
   sso: { max: 20, timeWindow: '1 minute', keyGenerator: (req: FastifyRequest) => `sso:${req.ip}` },
 };
