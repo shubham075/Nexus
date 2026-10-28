@@ -49,7 +49,8 @@ Engineering choices (made by the build, can be revisited):
 ```
 social_media/
 ├─ SOURCE_OF_TRUTH.md          ← this file
-├─ docker-compose.yml          ← postgres:16 (:5434) + SeaweedFS S3 (:8334)
+├─ docker-compose.yml          ← dev: postgres:16 (:5434) + SeaweedFS S3 (:8334)
+├─ deploy/                     ← production compose (API image, Postgres, S3, Redis, Caddy, backup) + guide
 ├─ package.json / pnpm-workspace.yaml
 ├─ packages/
 │  └─ shared/                  ← APP_NAME, permission catalog, DTO types, reaction types
@@ -226,6 +227,7 @@ Full definition: `apps/server/prisma/schema.prisma` (authoritative for fields).
 - Electron: `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, narrow preload bridge; token kept in main process with `safeStorage`.
 - All permission checks server-side; UI hides controls only as UX.
 - Uploads: type allow-list (image/*, video/mp4, application/pdf), size limits, stored in MinIO with server-generated keys.
+- Production (`deploy/`): only the Caddy proxy publishes ports (HTTPS + WSS); Postgres, S3, Redis and the API stay on the internal Docker network; the API image runs as the non-root `node` user; `/metrics` is blocked at the proxy; secrets live in `deploy/.env.prod` (git-ignored).
 
 ---
 
@@ -238,6 +240,7 @@ pnpm db:migrate && pnpm db:seed
 pnpm dev                      # starts API (:4000) and Electron app
 pnpm test                     # DAG engine + RBAC unit tests
 ```
+Production deployment (Docker image, prod compose, backups/restore, health + metrics, log shipping): see [`deploy/README.md`](deploy/README.md).
 Seed admin: `admin@nexus.local` — password in `apps/server/.env.example` (`SEED_ADMIN_PASSWORD`). Demo employees `priya|rahul|meera|arjun|sara|vikram|neha|karan|divya@nexus.local` use `SEED_DEMO_PASSWORD`.
 The renderer also runs in a normal browser at http://localhost:5183 (web bridge fallback) — basis for the phase-2 web client.
 
@@ -261,6 +264,16 @@ The renderer also runs in a normal browser at http://localhost:5183 (web bridge 
 ---
 
 ## 12. QA log
+
+### 2026-10-28 — production deployment stack (phase 1c)
+Verified on Docker Desktop 29.1 (Windows), prod stack on 8088/8443 next to the dev stack:
+1. `docker build -f apps/server/Dockerfile .` builds (491 MB; esbuild bundle, prod-only deps, runs as `node`).
+2. `docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.prod up -d` with profiles s3, redis, backup: postgres → `migrate` (exit 0) → api (healthy) → caddy. `GET https://localhost:8443/health/ready` → 200 with db + storage checks; `/metrics` → 404 through the proxy, served on `api:4000`; Socket.IO polling handshake OK and WebSocket upgrade → 101.
+3. `run --rm api seed` created the admin; login and an image upload + fetch through the proxy → 200.
+4. Backup/restore drill: `backup.sh` (dump + media mirror) → dropped the database and deleted the uploaded object → `restore.sh latest --with-media --yes` → users/posts/units counts identical (10/7/12), media fetch 200, login 200, `/health/ready` 200; re-running `migrate` reports no pending migrations.
+5. Bundle run outside Docker with storage and DB down: `/health/live` 200, `/health/ready` 503 naming both failing checks.
+
+Known limits: one API instance only (DAG/RBAC caches are per process); the bundled S3 is SeaweedFS because MinIO images are no longer published.
 
 ### 2026-10-28 — full click-through + API end-to-end pass
 Fixed:

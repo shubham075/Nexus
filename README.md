@@ -43,7 +43,8 @@ Admins model the company as a **hierarchy DAG** (units may report to several par
 ├─ README.md                 ← you are here
 ├─ SOURCE_OF_TRUTH.md        ← decisions, architecture, data model, roadmap, QA log
 ├─ CLAUDE.md                 ← orientation for Claude Code sessions
-├─ docker-compose.yml        ← Postgres (:5434) + S3 / SeaweedFS (:8334)
+├─ docker-compose.yml        ← dev: Postgres (:5434) + S3 / SeaweedFS (:8334)
+├─ deploy/                   ← production: compose stack, Caddy, backups, guide (deploy/README.md)
 ├─ packages/shared/          ← APP_NAME, permission catalog, system roles, shared types
 ├─ apps/server/              ← Fastify API
 │  ├─ prisma/schema.prisma   ← database schema (authoritative)
@@ -191,8 +192,10 @@ Output: `apps/desktop/release/Nexus-Setup-<version>.exe` (NSIS, x64, about 25 MB
 
 ## Deploying for the company
 
-1. **Server:** run `apps/server` on an internal host with Node 20+ (`pnpm --filter @nexus/server start`), a managed PostgreSQL and S3-compatible storage. Set strong `JWT_SECRET` and `PUBLIC_URL` values, then run `npx prisma migrate deploy` in `apps/server`. Put it behind HTTPS (reverse proxy) and allow WebSockets for realtime.
-2. **First admin:** run the seed once, or create a super admin in the database. Then sign in and **change the password**. Remove or deactivate the demo users from **Admin → Employees**.
+Full guide: **[`deploy/README.md`](deploy/README.md)** (what to provision, first deployment, upgrades, backups and restore, monitoring, TLS).
+
+1. **Server:** one Docker host runs the API image ([`apps/server/Dockerfile`](apps/server/Dockerfile)), PostgreSQL, S3-compatible storage, optional Redis, nightly backups and Caddy for HTTPS + WebSockets: copy `deploy/.env.prod.example` to `deploy/.env.prod`, fill in the secrets, then `docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.prod up -d --build`. Migrations run automatically as a one-shot `migrate` service. Health: `/health/ready` (DB + storage), `/health/live`; Prometheus metrics on `api:4000/metrics`.
+2. **First admin:** `docker compose … run --rm api seed` once on the empty database (creates `SEED_ADMIN_EMAIL`). Then sign in and **change the password**. Remove or deactivate the demo users from **Admin → Employees**.
 3. **Clients:** install `Nexus-Setup-x.y.z.exe`, then point it at the server by placing this file **next to `Nexus.exe`** (IT-wide) or in `%APPDATA%\Nexus` (per user):
    ```json
    { "apiUrl": "https://nexus.yourcompany.internal" }
@@ -230,7 +233,7 @@ Legend: ✅ done · 🟡 partly done · ⬜ not started
 - ⬜ Full-text search (Postgres `tsvector`), Redis for Socket.IO fan-out
 - ⬜ Auto-update (`electron-updater` + internal feed), code-signing certificate
 - ⬜ Authenticated media URLs (currently unguessable but public keys), retention policy, data export
-- ⬜ Production deployment guide/scripts (Docker image for the API, backups, monitoring)
+- ✅ Production deployment guide/scripts: API Docker image, prod compose (Caddy HTTPS/WSS, Postgres, S3, Redis), nightly backups + tested restore, `/health/ready|live`, Prometheus metrics ([`deploy/README.md`](deploy/README.md))
 
 ### Phase 2: public release ⬜
 - ⬜ Multi-tenancy (one org per tenant), public sign-up and company pages

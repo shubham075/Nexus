@@ -1,0 +1,38 @@
+# Reverse proxy for the Nexus API. Caddy upgrades WebSockets (Socket.IO) automatically.
+# NEXUS_DOMAIN: the hostname clients use (apiUrl in nexus.config.json = https://NEXUS_DOMAIN).
+# CADDY_TLS:
+#   internal                          Caddy's own CA (default; install its root cert on clients, see deploy/README.md)
+#   you@company.com                   public ACME (Let's Encrypt); the host must be reachable from the internet
+#   /certs/fullchain.pem /certs/key.pem   a certificate from your company CA (files in deploy/caddy/certs)
+{
+	admin off
+}
+
+{$NEXUS_DOMAIN} {
+	tls {$CADDY_TLS}
+	encode zstd gzip
+
+	# Metrics are scraped on the internal network (api:4000/metrics), never through the proxy.
+	@metrics path /metrics /metrics/*
+	respond @metrics 404
+
+	request_body {
+		max_size 60MB
+	}
+
+	reverse_proxy api:4000 {
+		health_uri /health/live
+		health_interval 15s
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		-Server
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

@@ -7,3 +7,10 @@ release
 .DS_Store
 playwright-report
 test-results
+
+# production deploy (secrets and local data)
+deploy/.env.prod
+deploy/backups
+deploy/updates
+deploy/caddy/certs/*
+!deploy/caddy/certs/.gitkeep

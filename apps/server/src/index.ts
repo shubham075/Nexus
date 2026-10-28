@@ -10,6 +10,7 @@ import { HttpError } from './lib/http';
 import { DagError } from './dag/engine';
 import { ensureBucket } from './lib/storage';
 import { setupRealtime } from './lib/realtime';
+import { registerObservability } from './lib/observability';
 import { authRoutes } from './routes/auth';
 import { hierarchyRoutes } from './routes/hierarchy';
 import { adminRoutes } from './routes/admin';
@@ -26,7 +27,11 @@ import { searchRoutes } from './routes/search';
 import { mediaRoutes } from './routes/media';
 import { reportRoutes } from './routes/reports';
 
-const app = Fastify({ logger: { level: 'info' } });
+// JSON logs to stdout (pino). TRUST_PROXY=true behind the reverse proxy so req.ip is the client, not the proxy.
+const app = Fastify({
+  logger: { level: process.env.LOG_LEVEL ?? 'info', redact: ['req.headers.authorization'] },
+  trustProxy: process.env.TRUST_PROXY === 'true',
+});
 
 await app.register(cors, { origin: true, credentials: true });
 await app.register(jwt, { secret: env.jwtSecret, sign: { expiresIn: '7d' } });
@@ -57,7 +62,7 @@ app.setErrorHandler((err, req, reply) => {
   return reply.status(500).send({ error: { code: 'INTERNAL', message: 'Something went wrong' } });
 });
 
-app.get('/health', async () => ({ ok: true }));
+registerObservability(app);
 
 await app.register(
   async (api) => {
