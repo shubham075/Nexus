@@ -29,6 +29,10 @@ import { jobRoutes } from './routes/jobs';
 import { searchRoutes } from './routes/search';
 import { mediaRoutes } from './routes/media';
 import { reportRoutes } from './routes/reports';
+import { companyRoutes } from './routes/companies';
+import { platformRoutes } from './routes/platform';
+import { devRoutes } from './routes/dev';
+import { dnsStubEnabled } from './lib/domains';
 import { updateRoutes } from './routes/updates';
 
 // JSON logs to stdout (pino). TRUST_PROXY=true behind the reverse proxy so req.ip is the client, not the proxy.
@@ -94,6 +98,9 @@ await app.register(
     await api.register(searchRoutes, { prefix: '/search' });
     await api.register(mediaRoutes, { prefix: '/media' });
     await api.register(reportRoutes, { prefix: '/reports' });
+    await api.register(companyRoutes, { prefix: '/companies' });
+    await api.register(platformRoutes, { prefix: '/platform' });
+    if (dnsStubEnabled) await api.register(devRoutes, { prefix: '/dev' });
   },
   { prefix: API_PREFIX },
 );

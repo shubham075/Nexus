@@ -1,7 +1,7 @@
 import type { FastifyRequest } from 'fastify';
 import type { Prisma } from '@prisma/client';
 import { prisma } from './db';
-import { badRequest, forbidden, notFound } from './http';
+import { HttpError, badRequest, forbidden, notFound } from './http';
 import { getDag } from '../dag/cache';
 
 declare module 'fastify' {
@@ -19,11 +19,13 @@ export async function resolveOrg(req: FastifyRequest): Promise<void> {
   const header = req.headers['x-org-id'];
   const wanted = typeof header === 'string' && header ? header : undefined;
   const m = await prisma.orgMember.findFirst({
-    where: { userId: req.user.sub, status: 'ACTIVE', ...(wanted ? { orgId: wanted } : {}) },
+    where: { userId: req.user.sub, status: 'ACTIVE', ...(wanted ? { orgId: wanted } : { org: { suspendedAt: null } }) },
     orderBy: { joinedAt: 'asc' },
-    select: { orgId: true },
+    select: { orgId: true, org: { select: { suspendedAt: true } } },
   });
   if (wanted && !m) throw forbidden('You are not a member of this organization');
+  // Suspended by a platform admin (2b): members are locked out of the org until it is unsuspended.
+  if (m?.org.suspendedAt) throw new HttpError(403, 'ORG_SUSPENDED', 'This organization is suspended');
   req.orgId = m?.orgId ?? null;
 }
 
@@ -34,7 +36,7 @@ export function orgOf(req: FastifyRequest): string {
 
 export async function orgsOf(userId: string) {
   const rows = await prisma.orgMember.findMany({
-    where: { userId, status: 'ACTIVE' },
+    where: { userId, status: 'ACTIVE', org: { suspendedAt: null } },
     orderBy: { joinedAt: 'asc' },
     select: { org: { select: { id: true, slug: true, name: true, logoUrl: true } } },
   });
