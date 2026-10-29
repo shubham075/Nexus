@@ -299,6 +299,9 @@ The renderer also runs in a normal browser at http://localhost:5183 (web bridge 
 
 ## 12. QA log
 
+### 2026-10-30 — release bundle
+`pnpm release` built `release/nexus-0.1.0/` with a placeholder domain; `pnpm typecheck` passes; prod compose renders. Found and fixed: prod compose never set `APP_URL`, so invite/verify/reset emails linked to `http://localhost:5183`; it now defaults to `https://<NEXUS_WEB_DOMAIN or app.NEXUS_DOMAIN>`. Added `SEED_DEMO=false` (company + admin only) for production first runs.
+
 ### 2026-10-30 — integration of public jobs (2d part) with 2c on `master`
 Merged `claude/public-jobs-cca362`, applied `20261029210000_public_jobs`. Verified: `pnpm typecheck`, `pnpm test` 48/48, `pnpm test:e2e` run **twice back to back** per mode: multi 36 pass + 2 skipped, single 33 pass + 5 skipped. Fixes:
 1. **Real bug (dev/e2e only):** `POST /dev/purge-unverified` purged *every* unverified sign-up, so `public-jobs.e2e.ts` deleted accounts that `accounts.e2e.ts` (running in parallel) had just created → their verify links failed (404 / `INVALID_TOKEN`). It now takes `emails` and the test purges only its own address.
@@ -474,6 +477,8 @@ pnpm build:win:azure  # same, signed with Azure Trusted Signing (electron-builde
 2. `pnpm build:win` (or `build:win:azure`, or CI on a `windows-latest` runner).
 3. Upload **`latest.yml` last**, after `Nexus-Setup-<v>.exe` and `.blockmap`, into the feed folder (`UPDATES_DIR` on the API host, or your static host). Keep the previous installer for a while so in-flight downloads finish.
 4. Clients pick it up within 4 h (or on next launch). New installs: hand out the same `.exe`.
+
+One step instead: `pnpm release -- --api-url https://<NEXUS_DOMAIN>` (`scripts/release.mjs`). It builds the installer with `NEXUS_API_URL` (and optional `NEXUS_UPDATE_URL`) baked into the main process (`__BAKED_API_URL__`, below `nexus.config.json` and runtime env vars in precedence), then writes `release/nexus-<v>/`: `desktop/` installer, `server/` (tracked server, desktop, shared and deploy files plus `deploy/updates/` feed) and `INSTALL.md` (`deploy/INSTALL.md`), and zips it.
 
 ### 13.3 Code signing (unsigned by default)
 - **PFX/EV via signtool**: set `CSC_LINK` (path, https URL or base64 of the `.pfx`) and `CSC_KEY_PASSWORD` in the build environment; electron-builder signs the app exe, installer and uninstaller. Nothing to change in config. (EV tokens on a hardware key need `win.signtoolOptions` / a custom `sign` hook instead.)

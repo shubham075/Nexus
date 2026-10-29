@@ -327,10 +327,10 @@ Legend: ✅ done · 🟡 partly done · ⬜ not started
   - ⬜ **Web client deployment** (~0.5–1 h, ~1–2M tokens): wire `app.<domain>` / `api.<domain>`, CORS allow-list, cookie-based refresh tokens, web SSO redirect flow, deploy test. A real deployment needs your server, domain and TLS
   - The first two items can run in parallel (separate files and databases); deployment comes last
 
-### Release bundle ⬜ (after 2d, ~0.5–1 h, ~1–2M tokens)
-One command that builds a versioned bundle: the Windows installer, a ready-to-run server folder (`deploy/` prod compose, env templates, Caddy, backups, web image) and a short install guide.
+### Release bundle ✅
+`pnpm release -- --api-url https://nexus.yourcompany.com` builds `release/nexus-<version>/` (+ `.zip`): `desktop/` the installer with the server address built in (intranet download), `server/` the files to copy to the server (Docker image sources, `deploy/` with the update feed filled in), `INSTALL.md` the step-by-step server guide ([`deploy/INSTALL.md`](deploy/INSTALL.md), Windows Server + Hyper-V Linux VM). Production seed: `SEED_DEMO=false` creates only your company and the admin. Prod email links default to `https://app.<NEXUS_DOMAIN>` (`APP_URL`).
 
-**Estimate for 2d + release bundle:** about 2.5–4 hours of session time and ~8–14M tokens (rough, based on earlier phases; usage limits can pause the work).
+**Estimate for the rest of 2d:** about 2–3 hours of session time and ~7–12M tokens (rough; usage limits can pause the work). Not needed for an internal single-company deployment.
 
 ### Phase 2e: later features ⬜ (optional, each is large)
 - ⬜ Recommendations: smarter feed ranking, people-you-may-know, job matching (~2–4 h each)
@@ -346,7 +346,7 @@ One command that builds a versioned bundle: the Windows installer, a ready-to-ru
 - ⬜ One `/code-review ultra` run (user-started, billed) and a security review: access control changed a lot in 2a–2c
 - ⬜ Load test (e.g. 500–5,000 concurrent users), accessibility check, monitoring and alerts
 
-**Recommended order:** the two parallel 2d items → web deployment → release bundle → code review / security review → 2e only when launching publicly.
+**Recommended order:** internal go-live: security review → deploy with the release bundle (`deploy/INSTALL.md`). Public launch: the two parallel 2d items → web deployment → code review → 2e.
 
 Phase-1 product decisions are settled (D17–D19, 2026-10-29): messages expire after 2 years; managers see analytics for their own units; no HRIS sync for now.
 

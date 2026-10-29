@@ -48,15 +48,15 @@ curl -k https://$NEXUS_DOMAIN/health/ready
 
 **Migrations** run as the one-shot `migrate` service (`prisma migrate deploy`) before every `up`; the API only starts when it exits 0. Run it on its own with `nexus run --rm migrate`.
 
-**First admin.** On the empty database, run the seed once. It creates the super admin from `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` plus the demo company:
+**First admin.** On the empty database, run the seed once. It creates the super admin from `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` and the company `SEED_COMPANY_NAME` (with `SEED_DEMO=false`, the default in `.env.prod.example`, nothing else):
 
 ```bash
 nexus run --rm api seed
 ```
 
-Then sign in, change the admin password, rename the root unit and delete/deactivate the demo users (Admin → Employees). The seed refuses to run on a non-empty database.
+Then sign in, change the admin password, build the hierarchy and invite employees. (With `SEED_DEMO=true` you also get the demo company; deactivate its users before going live.) The seed refuses to run on a non-empty database.
 
-**Clients.** Put `nexus.config.json` next to `Nexus.exe` (or in `%APPDATA%\Nexus`): `{ "apiUrl": "https://nexus.yourcompany.internal" }` (see the root README).
+**Clients.** Build the installer with the server address baked in: `NEXUS_API_URL=https://nexus.yourcompany.com pnpm build:win`, or `pnpm release` (see [`INSTALL.md`](INSTALL.md)). To point an existing install elsewhere, put `nexus.config.json` next to `Nexus.exe` (or in `%APPDATA%\Nexus`): `{ "apiUrl": "https://nexus.yourcompany.internal" }` (see the root README).
 
 **Email.** Sign-up verification, password reset and invites (phase 2b) are sent over SMTP. Set `SMTP_URL` (or `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`SMTP_SECURE`) and `MAIL_FROM` in `.env.prod`; any provider works (Amazon SES, Postmark, SendGrid, Microsoft 365, your relay). Publish SPF and DKIM (ideally DMARC) for the `MAIL_FROM` domain or mail lands in spam. The host must reach the provider outbound on 465 or 587. Without SMTP the API only logs that a mail was due (no body, since it carries links).
 

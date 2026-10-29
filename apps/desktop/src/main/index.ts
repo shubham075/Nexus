@@ -8,11 +8,14 @@ import { API_PREFIX } from '@nexus/shared';
 import { setupAutoUpdate } from './updater';
 
 const trimUrl = (url: string) => url.replace(/\/+$/, '');
+declare const __BAKED_API_URL__: string;
+declare const __BAKED_UPDATE_URL__: string;
 
 /**
  * Client config, first match wins per key:
  *   1. nexus.config.json in %APPDATA%\Nexus (per user)  2. nexus.config.json next to Nexus.exe (IT-wide)
- *   3. NEXUS_API_URL / NEXUS_UPDATE_URL env vars  4. http://localhost:4000 (dev); update feed defaults to <apiUrl>/updates/
+ *   3. NEXUS_API_URL / NEXUS_UPDATE_URL env vars  4. the address baked in at build time (same env vars)
+ *   5. http://localhost:4000 (dev); update feed defaults to <apiUrl>/updates/
  * File format: { "apiUrl": "https://nexus.yourcompany.internal", "updateUrl": "https://files.yourcompany.internal/nexus/" }
  * `updateUrl` is optional.
  */
@@ -30,8 +33,9 @@ function resolveConfig(): { apiUrl: string; updateUrl: string } {
       /* missing or invalid — try the next source */
     }
   }
-  const apiUrl = found.apiUrl ?? trimUrl(process.env.NEXUS_API_URL ?? 'http://localhost:4000');
-  const updateUrl = found.updateUrl ?? (process.env.NEXUS_UPDATE_URL ? trimUrl(process.env.NEXUS_UPDATE_URL) : `${apiUrl}/updates`);
+  const apiUrl = found.apiUrl ?? trimUrl(process.env.NEXUS_API_URL || __BAKED_API_URL__ || 'http://localhost:4000');
+  const feed = process.env.NEXUS_UPDATE_URL || __BAKED_UPDATE_URL__;
+  const updateUrl = found.updateUrl ?? (feed ? trimUrl(feed) : `${apiUrl}/updates`);
   return { apiUrl, updateUrl: `${updateUrl}/` };
 }
 

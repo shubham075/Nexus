@@ -2,6 +2,7 @@
  * Seeds a demo company with a matrix (multi-parent) hierarchy, system roles, grants,
  * employees and some content, plus a tiny second org ("Globex") that only the tenancy tests use.
  * Idempotent only on an empty DB — run `pnpm db:reset` to start over.
+ * Production: SEED_DEMO=false creates only the company (SEED_COMPANY_NAME), its root unit, system roles and the admin.
  */
 import { PrismaClient, type OrgNodeType } from '@prisma/client';
 import bcrypt from 'bcryptjs';
@@ -11,6 +12,8 @@ const prisma = new PrismaClient();
 const adminEmail = process.env.SEED_ADMIN_EMAIL ?? 'admin@nexus.local';
 const adminPassword = process.env.SEED_ADMIN_PASSWORD ?? 'Admin@12345';
 const demoPassword = process.env.SEED_DEMO_PASSWORD ?? 'Welcome@123';
+const withDemo = process.env.SEED_DEMO !== 'false';
+const companyName = process.env.SEED_COMPANY_NAME || 'Nexus Corp';
 
 /**
  * Second org used only by the tenancy e2e tests (no cross-org reads/writes): its own root, roles, two
@@ -53,13 +56,27 @@ async function main() {
   }
 
   // ───────── Organization (SOT §14) ─────────
-  const org = await prisma.organization.create({ data: { slug: 'nexus', name: 'Nexus Corp', industry: 'Software' } });
+  const slug = withDemo ? 'nexus' : companyName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'company';
+  const org = await prisma.organization.create({ data: { slug, name: companyName, industry: withDemo ? 'Software' : undefined } });
   const orgId = org.id;
 
   // ───────── Hierarchy (DAG) ─────────
   const node = (name: string, type: OrgNodeType, description?: string, isRoot = false) =>
     prisma.orgNode.create({ data: { orgId, name, type, description, isRoot } });
-  const co = await node('Nexus Corp', 'COMPANY', 'The whole company', true);
+  const co = await node(companyName, 'COMPANY', 'The whole company', true);
+
+  if (!withDemo) {
+    await Promise.all(SYSTEM_ROLES.map((r) => prisma.role.create({ data: { ...r, orgId, isSystem: true } })));
+    await prisma.user.create({
+      data: {
+        email: adminEmail, name: 'Administrator', headline: 'Platform Administrator', passwordHash: await bcrypt.hash(adminPassword, 10),
+        isSuperAdmin: true, memberships: { create: [{ nodeId: co.id, title: 'Platform Admin', isPrimary: true }] },
+        orgMemberships: { create: { orgId, isOrgAdmin: true } },
+      },
+    });
+    console.log(`Seeded ${companyName} (no demo data). Admin: ${adminEmail} / (SEED_ADMIN_PASSWORD).`);
+    return;
+  }
   const eng = await node('Engineering', 'DIVISION');
   const prod = await node('Product', 'DIVISION');
   const people = await node('People & HR', 'DIVISION');
