@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bookmark, Briefcase, Plus, Search } from 'lucide-react';
+import { Bookmark, Briefcase, Globe, Plus, Search } from 'lucide-react';
 import { api } from '@/lib/api';
-import { useCan } from '@/lib/auth';
+import { useAuth, useCan } from '@/lib/auth';
 import { ago } from '@/lib/format';
 import { Empty, ErrorText, Modal, Spinner, Tabs } from '@/components/ui';
 import { NodeSelect } from '@/components/NodeSelect';
@@ -11,13 +11,16 @@ import { NodeSelect } from '@/components/NodeSelect';
 export function JobForm({ initial, onClose }: { initial?: any; onClose: () => void }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const multi = useAuth((s) => s.me?.tenancy === 'multi');
   const [f, setF] = useState({
     title: initial?.title ?? '', description: initial?.description ?? '', location: initial?.location ?? '',
     workplace: initial?.workplace ?? 'ONSITE', employment: initial?.employment ?? 'FULL_TIME', skills: (initial?.skills ?? []).join(', '), nodeId: initial?.nodeId ?? null,
+    isPublic: initial?.isPublic ?? false,
   });
   const save = useMutation({
     mutationFn: () => {
-      const body = { ...f, skills: f.skills.split(',').map((s: string) => s.trim()).filter(Boolean) };
+      const { isPublic, ...rest } = f;
+      const body = { ...rest, ...(multi ? { isPublic } : {}), skills: f.skills.split(',').map((s: string) => s.trim()).filter(Boolean) };
       return initial ? api.patch(`/jobs/${initial.id}`, body) : api.post('/jobs', body);
     },
     onSuccess: (j) => { qc.invalidateQueries({ queryKey: ['jobs'] }); qc.invalidateQueries({ queryKey: ['job'] }); onClose(); if (!initial) navigate(`/jobs/${j.id}`); },
@@ -32,6 +35,12 @@ export function JobForm({ initial, onClose }: { initial?: any; onClose: () => vo
         <div><label className="label">Employment</label><select className="input" value={f.employment} onChange={(e) => setF({ ...f, employment: e.target.value })}>{['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERNSHIP'].map((w) => <option key={w}>{w}</option>)}</select></div>
         <div className="col-span-2"><label className="label">Skills (comma separated)</label><input className="input" value={f.skills} onChange={(e) => setF({ ...f, skills: e.target.value })} /></div>
         <div className="col-span-2"><label className="label">Description *</label><textarea className="input" rows={8} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></div>
+        {multi && (
+          <label className="col-span-2 flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={f.isPublic} onChange={(e) => setF({ ...f, isPublic: e.target.checked })} />
+            Public: show on the company page and in everyone's job search (otherwise only colleagues see it)
+          </label>
+        )}
       </div>
       <ErrorText error={save.error} />
     </Modal>
@@ -40,14 +49,18 @@ export function JobForm({ initial, onClose }: { initial?: any; onClose: () => vo
 
 export const label = (s: string) => s.toLowerCase().replace('_', '-');
 
+/** Company and hiring unit. */
+export const jobPlace = (j: any) => [j.org?.name, j.node?.name ?? 'Company-wide'].filter(Boolean).join(' · ');
+
 export default function Jobs() {
   const canPost = useCan('job.create');
+  const multi = useAuth((s) => s.me?.tenancy === 'multi');
   const qc = useQueryClient();
-  const [tab, setTab] = useState<'browse' | 'saved' | 'applied' | 'posted'>('browse');
+  const [tab, setTab] = useState<'browse' | 'public' | 'saved' | 'applied' | 'posted'>('browse');
   const [q, setQ] = useState('');
   const [search, setSearch] = useState('');
   const [posting, setPosting] = useState(false);
-  const path = tab === 'saved' ? '/jobs?saved=true' : tab === 'posted' ? '/jobs?mine=true' : `/jobs?q=${encodeURIComponent(search)}`;
+  const path = tab === 'saved' ? '/jobs?saved=true' : tab === 'posted' ? '/jobs?mine=true' : `/jobs?q=${encodeURIComponent(search)}${tab === 'public' ? '&public=true' : ''}`;
   const jobs = useQuery({ queryKey: ['jobs', tab, search], queryFn: () => api.get<any[]>(path), enabled: tab !== 'applied' });
   const apps = useQuery({ queryKey: ['jobs', 'applications'], queryFn: () => api.get<any[]>('/jobs/applications/mine'), enabled: tab === 'applied' });
   const save = useMutation({ mutationFn: (id: string) => api.post(`/jobs/${id}/save`), onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }) });
@@ -56,8 +69,8 @@ export default function Jobs() {
     <div className="mx-auto max-w-[860px] space-y-2 px-4 py-5">
       <div className="card">
         <div className="flex items-center gap-2 px-4 pt-3">
-          <h1 className="text-xl font-semibold">Internal jobs</h1>
-          <form className="relative ml-auto w-72" onSubmit={(e) => { e.preventDefault(); setSearch(q); setTab('browse'); }}>
+          <h1 className="text-xl font-semibold">{multi ? 'Jobs' : 'Internal jobs'}</h1>
+          <form className="relative ml-auto w-72" onSubmit={(e) => { e.preventDefault(); setSearch(q); if (tab !== 'public') setTab('browse'); }}>
             <Search size={16} className="absolute left-3 top-2.5 text-zinc-500" />
             <input className="input pl-9" placeholder="Title, skill or location" value={q} onChange={(e) => setQ(e.target.value)} />
           </form>
@@ -66,7 +79,7 @@ export default function Jobs() {
         <Tabs
           value={tab}
           onChange={setTab}
-          tabs={[{ value: 'browse', label: 'Recommended' }, { value: 'saved', label: 'Saved' }, { value: 'applied', label: 'Applied' }, ...(canPost ? [{ value: 'posted' as const, label: 'Posted by me' }] : [])]}
+          tabs={[{ value: 'browse', label: 'Recommended' }, ...(multi ? [{ value: 'public' as const, label: 'Public jobs' }] : []), { value: 'saved', label: 'Saved' }, { value: 'applied', label: 'Applied' }, ...(canPost ? [{ value: 'posted' as const, label: 'Posted by me' }] : [])]}
         />
         {(jobs.isLoading || apps.isLoading) && <Spinner />}
         {tab !== 'applied' && (
@@ -76,7 +89,7 @@ export default function Jobs() {
                 <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded bg-sky-100 text-sky-700"><Briefcase /></div>
                 <Link to={`/jobs/${j.id}`} className="flex-1">
                   <div className="font-semibold text-brand-500 hover:underline">{j.title}</div>
-                  <div className="text-sm">{j.node?.name ?? 'Company-wide'}</div>
+                  <div className="text-sm">{jobPlace(j)}{j.isPublic && <span className="muted"> · <Globe size={12} className="inline" /> Public</span>}</div>
                   <div className="muted">{j.location} ({label(j.workplace)}) · {label(j.employment)}</div>
                   <div className="muted mt-1">{ago(j.createdAt)} ago · {j.applicantCount} applicant{j.applicantCount === 1 ? '' : 's'}{j.myApplication && <b className="text-green-700"> · Applied ({label(j.myApplication)})</b>}{j.status === 'CLOSED' && <b className="text-red-600"> · Closed</b>}</div>
                 </Link>

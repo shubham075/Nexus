@@ -436,6 +436,16 @@ Verified: `pnpm typecheck` clean; `pnpm test` 43/43.
 
 ---
 
+### 2026-10-29: public jobs + sign-up abuse limits (2d), branch `claude/public-jobs-cca362`
+Isolated setup: database `nexus_jobs`, API on :4002.
+
+- **Public jobs (multi mode):** `Job.isPublic` (migration `public_jobs`). A company posts a job as internal (default, org-private as before) or public. Public jobs are visible to every signed-in user, also from another company or none: `GET /jobs` includes them, `?public=true` lists only public ones (global search with `q`), `?orgId=` filters by company (company page shows "Open jobs"). Anyone may apply; only the poster and the company's `job.manage` holders see applicants or edit. Single mode ignores `isPublic`. Not done: the job's announcement post (`Post.kind=JOB`) still follows `postsVisibleIn` (org-only), left for 2c's visibility work.
+- **Abuse limits:** sign-up per IP `SIGNUP_LIMIT_PER_IP` (default 10/h) and per address `SIGNUP_LIMIT_PER_EMAIL` (3/h); resend-verification and forgot-password keep 3/15 min per address plus `EMAIL_LINK_LIMIT_PER_IP` (20/h). Second limits use `keyedLimit()` in `lib/rateLimit.ts` (in-memory, like the plugin's store). Disposable domains (built-in list in `lib/abuse.ts`, subdomains too; `DISPOSABLE_EMAIL_DOMAINS` replaces it, empty = none) → 400 `DISPOSABLE_EMAIL`. Sign-ups unverified after `RETENTION_UNVERIFIED_ACCOUNT_DAYS` (default 7) are deleted by the retention job (skips super admins and anyone with an org membership). Dev route `POST /dev/purge-unverified {days}` (DNS_STUB only) runs that purge as of a later date for e2e.
+
+Verified: `pnpm typecheck` clean; `pnpm test` 48/48; `e2e/public-jobs.e2e.ts` + `accounts.e2e.ts` pass in multi mode (`DNS_STUB=true`, `SIGNUP_LIMIT_PER_IP=1000` because the suites sign up many users from one IP); all e2e in single mode 26 pass, 5 multi-only skipped. UI (job form toggle, "Public jobs" tab, company page list) typechecks but was not exercised in a browser.
+
+---
+
 ## 13. Windows installer
 
 ```bash

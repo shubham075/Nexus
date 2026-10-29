@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bookmark, Briefcase } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -54,7 +54,7 @@ export default function JobPage() {
           <div className="flex h-16 w-16 items-center justify-center rounded bg-sky-100 text-sky-700"><Briefcase size={28} /></div>
           <div className="flex-1">
             <h1 className="text-2xl font-semibold">{j.title}</h1>
-            <div className="text-sm">{j.node?.name ?? 'Company-wide'} · {j.location}</div>
+            <div className="text-sm">{j.org ? <Link to={`/companies/${j.org.id}`} className="hover:underline">{j.org.name}</Link> : null}{j.org && ' · '}{j.node?.name ?? 'Company-wide'} · {j.location}{j.isPublic && ' · Public'}</div>
             <div className="muted">Posted {ago(j.createdAt)} ago by {j.poster.name} · {j.applicantCount} applicants</div>
             <div className="mt-2 flex flex-wrap gap-1">
               <span className="chip">{label(j.workplace)}</span>

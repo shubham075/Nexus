@@ -822,6 +822,8 @@ model Job {
   employment   String                   @default("FULL_TIME")
   skills       String[]                 @default([])
   status       JobStatus                @default(OPEN)
+  /// Multi mode (SOT §14.4, 2d): listed on the company page and in every user's job search; anyone may apply
+  isPublic     Boolean                  @default(false)
   /// null = public/personal (SOT §14.2)
   orgId        String?
   org          Organization?            @relation(fields: [orgId], references: [id], onDelete: Cascade)
@@ -836,6 +838,7 @@ model Job {
   search       Unsupported("tsvector")? @default(dbgenerated()) /// generated column + GIN index, see migration full_text_search
 
   @@index([search], type: Gin)
+  @@index([isPublic, status, createdAt])
 }
 
 model JobApplication {
