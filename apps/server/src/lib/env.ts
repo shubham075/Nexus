@@ -55,6 +55,8 @@ export const env = {
     signupsPerIp: int('SIGNUP_LIMIT_PER_IP', 10),
     signupsPerEmail: int('SIGNUP_LIMIT_PER_EMAIL', 3),
     emailLinksPerIp: int('EMAIL_LINK_LIMIT_PER_IP', 20),
+    /** Redeeming emailed tokens per IP per minute (verify / reset / invite); raise for back-to-back e2e runs. */
+    redeemPerMinute: int('REDEEM_LIMIT_PER_MINUTE', 20),
   },
   /** Fastify `trustProxy`: "true", a hop count, or a comma-separated list of proxy IPs/CIDRs. */
   trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
