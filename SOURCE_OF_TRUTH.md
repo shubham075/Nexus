@@ -299,6 +299,13 @@ The renderer also runs in a normal browser at http://localhost:5183 (web bridge 
 
 ## 12. QA log
 
+### 2026-10-30 — integration of public jobs (2d part) with 2c on `master`
+Merged `claude/public-jobs-cca362`, applied `20261029210000_public_jobs`. Verified: `pnpm typecheck`, `pnpm test` 48/48, `pnpm test:e2e` run **twice back to back** per mode: multi 36 pass + 2 skipped, single 33 pass + 5 skipped. Fixes:
+1. **Real bug (dev/e2e only):** `POST /dev/purge-unverified` purged *every* unverified sign-up, so `public-jobs.e2e.ts` deleted accounts that `accounts.e2e.ts` (running in parallel) had just created → their verify links failed (404 / `INVALID_TOKEN`). It now takes `emails` and the test purges only its own address.
+2. e2e Mailpit lookups only accept mail addressed exactly to the recipient (Mailpit search is fuzzy).
+3. "Globex audit has only Globex actions" failed after ~13 runs because each run adds Globex audit rows and the seed entry scrolled off the first page; it now checks that every entry is by a Globex member. No cross-org audit/report leak was found.
+4. Re-runs from one IP hit the sign-up / email-link / token-redeem limits. New `REDEEM_LIMIT_PER_MINUTE` (default 20, 0 = off). For e2e, start the API with `SIGNUP_LIMIT_PER_IP=0 EMAIL_LINK_LIMIT_PER_IP=0 REDEEM_LIMIT_PER_MINUTE=0` (the per-address limit stays on, so its 429 test still runs).
+
 ### 2026-10-30 — phase 2c: visibility & feed
 Built per §14.2/§14.3 and verified on the dev stack in **both** modes (`pnpm typecheck`, `pnpm test` 46/46, `pnpm test:e2e`: multi 34 pass + 1 skipped, single 32 pass + 3 skipped):
 1. Migration `20261030090000_post_visibility`: `PostVisibility` enum (default ORG), `Post.orgId`, `PostAudienceNode`; existing posts → ORG in their group/event/job org, else the author's first active org (dev DB: 67 posts). An insert trigger fills `orgId` for ORG posts created without one (event/job/article share posts).

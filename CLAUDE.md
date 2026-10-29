@@ -24,7 +24,7 @@ Internal LinkedIn-style desktop app (Electron + React) with a Fastify/Prisma API
 - Mentions are stored as `@[Name](userId)`; `MentionInput` shows `@Name`.
 - Post visibility (SOT §14.2): never write a post `where` by hand. Read posts (and anything hanging off one) with `postWhere(await viewerOf(req))` combined via `AND`, check single posts with `assertSeePost(req, postId)`, and pass `postId` to `notify()` so recipients who can't see the post get nothing (`apps/server/src/lib/visibility.ts`). Posting/commenting use `assertNetworkPerm` (no company needed in multi mode).
 - Email links (verify, reset, invite) go through `lib/emailTokens.ts` (hashed, single use, `APP_URL/#/<route>?token=`); endpoints accept the pasted link or token. Multi-only route plugins (`/companies`, `/platform`) 404 in single mode via an `onRequest` hook.
-- e2e runs `e2e/*.e2e.ts` against a live API; multi-mode tests need `TENANCY=multi` and `DNS_STUB=true` on the server and read mail from Mailpit (:8026).
+- e2e runs `e2e/*.e2e.ts` (files in parallel) against a live API; multi-mode tests need `TENANCY=multi` and `DNS_STUB=true` on the server and read mail from Mailpit (:8026). For repeated runs start the API with `SIGNUP_LIMIT_PER_IP=0 EMAIL_LINK_LIMIT_PER_IP=0 REDEEM_LIMIT_PER_MINUTE=0`. Tests must not touch other suites' data (scope dev helpers to your own rows).
 
 ## Gotchas (Windows)
 - Use `127.0.0.1`, not `localhost`, in server env URLs (IPv6-first lookup adds ~200 ms).
