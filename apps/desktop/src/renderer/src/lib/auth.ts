@@ -105,3 +105,9 @@ export function useCan(perm: Permission): boolean {
   const perms = useAuth((s) => s.me?.permissions ?? []);
   return perms.includes('admin.all') || perms.includes(perm);
 }
+
+/** Posting / commenting (mirrors the server's assertNetworkPerm): in multi mode people without a company may too. */
+export function useCanNetwork(perm: Permission): boolean {
+  const noCompany = useAuth((s) => s.me?.tenancy === 'multi' && !s.me.activeOrgId);
+  return useCan(perm) || noCompany;
+}

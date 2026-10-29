@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MoreHorizontal } from 'lucide-react';
 import type { ReactionType } from '@nexus/shared';
 import { api } from '@/lib/api';
-import { useAuth, useCan } from '@/lib/auth';
+import { useAuth, useCan, useCanNetwork } from '@/lib/auth';
 import { ago } from '@/lib/format';
 import { Avatar, Menu, MenuItem, RichText, Spinner } from './ui';
 import { MentionInput } from './MentionInput';
@@ -13,7 +13,7 @@ import { ReactionButton, ReportModal } from './PostCard';
 function CommentInput({ postId, parentId, onDone, autoFocus, initial = '' }: { postId: string; parentId?: string; onDone?: () => void; autoFocus?: boolean; initial?: string }) {
   const me = useAuth((s) => s.me!);
   const qc = useQueryClient();
-  const canComment = useCan('comment.create');
+  const canComment = useCanNetwork('comment.create');
   const [body, setBody] = useState(initial);
   const send = useMutation({
     mutationFn: () => api.post(`/posts/${postId}/comments`, { body, parentId }),

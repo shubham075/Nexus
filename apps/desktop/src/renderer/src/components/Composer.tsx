@@ -4,7 +4,7 @@ import { BarChart3, FileText, Image, PartyPopper, Trash2, X, Newspaper, Calendar
 import { useNavigate } from 'react-router-dom';
 import { UPLOAD_ACCEPT } from '@nexus/shared';
 import { api } from '@/lib/api';
-import { useAuth, useCan } from '@/lib/auth';
+import { useAuth, useCan, useCanNetwork } from '@/lib/auth';
 import { Avatar, ErrorText, Modal } from './ui';
 import { MentionInput } from './MentionInput';
 import { PostEmbed } from './PostCard';
@@ -24,7 +24,7 @@ type Mode = 'text' | 'media' | 'poll' | 'celebrate';
 /** The "Start a post" box at the top of the feed / groups. */
 export function ComposerBox({ groupId }: { groupId?: string }) {
   const me = useAuth((s) => s.me!);
-  const canPost = useCan('post.create');
+  const canPost = useCanNetwork('post.create');
   const canArticle = useCan('article.publish');
   const canEvent = useCan('event.create');
   const navigate = useNavigate();

@@ -5,6 +5,7 @@ import { HttpError, forbidden } from './http';
 import { can } from '../rbac';
 import { sessionIsLive } from './sessions';
 import { orgOf, resolveOrg } from './org';
+import { env } from './env';
 
 declare module '@fastify/jwt' {
   interface FastifyJWT {
@@ -31,6 +32,15 @@ export function requirePerm(perm: Permission) {
   return async (req: FastifyRequest) => {
     if (!(await can(uid(req), orgOf(req), perm))) throw forbidden(`Missing permission: ${perm}`);
   };
+}
+
+/**
+ * Network actions (posting, commenting): checked against the active org's grants when you have one; in multi
+ * mode someone without a company still takes part in the global network (SOT §14.3).
+ */
+export async function assertNetworkPerm(req: FastifyRequest, perm: Permission) {
+  if (!req.orgId && env.tenancy === 'multi') return;
+  await assertCan(uid(req), orgOf(req), perm);
 }
 
 export async function assertCan(userId: string, orgId: string, perm: Permission, targetNodes?: string[]) {

@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { REACTION_TYPES } from '@nexus/shared';
 import { prisma } from '../lib/db';
 import { badRequest, forbidden, notFound, page, pageArgs, parse } from '../lib/http';
-import { assertCan, authenticate, requirePerm, uid } from '../lib/auth';
+import { assertNetworkPerm, authenticate, requirePerm, uid } from '../lib/auth';
 import { audit, notify, userLite } from '../lib/notify';
 import { extractHashtags, extractMentions, plain } from '../lib/text';
 import { canOverUser } from '../rbac';
@@ -250,8 +250,9 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
 
   app.get<{ Params: { id: string } }>('/:id', async (req) => loadPost(req, req.params.id));
 
-  app.post('/', { preHandler: requirePerm('post.create') }, async (req) => {
+  app.post('/', async (req) => {
     const me = uid(req);
+    await assertNetworkPerm(req, 'post.create');
     const b = parse(createBody, req.body);
     if (!b.body.trim() && !b.media.length && !b.poll && !b.repostOfId && !b.celebration) throw badRequest('Post is empty');
     let audience = await resolveAudience(req, b);
@@ -470,9 +471,9 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
 
   app.post<{ Params: { id: string } }>('/:id/comments', async (req) => {
     const me = uid(req);
-    await assertCan(me, orgOf(req), 'comment.create');
-    const b = parse(z.object({ body: z.string().trim().min(1).max(1250), parentId: z.string().nullish() }), req.body);
     await assertSeePost(req, req.params.id);
+    await assertNetworkPerm(req, 'comment.create');
+    const b = parse(z.object({ body: z.string().trim().min(1).max(1250), parentId: z.string().nullish() }), req.body);
     const post = await prisma.post.findUniqueOrThrow({ where: { id: req.params.id }, select: { id: true, authorId: true } });
     let parentId = b.parentId ?? null;
     let parentAuthor: string | null = null;
