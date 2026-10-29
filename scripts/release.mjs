@@ -60,7 +60,7 @@ cpSync(join(root, 'deploy/INSTALL.md'), join(out, 'INSTALL.md'));
 const zip = `${out}.zip`;
 rmSync(zip, { force: true });
 try {
-  const tar = process.platform === 'win32' ? join(process.env.SystemRoot ?? 'C:\Windows', 'System32', 'tar.exe') : 'tar';
+  const tar = process.platform === 'win32' ? join(process.env.SystemRoot ?? 'C:/Windows', 'System32', 'tar.exe') : 'tar';
   execSync(`"${tar}" -a -c -f "${zip}" -C "${join(root, 'release')}" "nexus-${version}"`, { stdio: 'ignore' });
 } catch {
   console.warn('! Could not create the .zip; copy the folder instead.');
