@@ -7,6 +7,7 @@ import { notify, userLite } from '../lib/notify';
 import { can } from '../rbac';
 import { assertNodesInOrg, orgOf, visibleIn } from '../lib/org';
 import { postInclude, serializePosts } from './posts';
+import { postWhere, viewerOf } from '../lib/visibility';
 
 const groupBody = z.object({
   name: z.string().trim().min(1).max(100),
@@ -99,7 +100,7 @@ export const groupRoutes: FastifyPluginAsync = async (app) => {
       if ((!m || m.role === 'PENDING') && !(g.orgId && (await can(me, g.orgId, 'group.moderate')))) return { items: [], nextCursor: null, locked: true };
     }
     const { limit, ...args } = pageArgs(req.query, 10);
-    const rows = await prisma.post.findMany({ ...args, where: { groupId: g.id, isHidden: false }, orderBy: { createdAt: 'desc' }, include: postInclude(me) });
+    const rows = await prisma.post.findMany({ ...args, where: { AND: [postWhere(await viewerOf(req)), { groupId: g.id }] }, orderBy: { createdAt: 'desc' }, include: postInclude(me) });
     const { items, nextCursor } = page(rows, limit);
     return { items: await serializePosts(items), nextCursor };
   });

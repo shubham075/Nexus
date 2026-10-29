@@ -6,6 +6,7 @@ import { authenticate, uid } from '../lib/auth';
 import { notify, userLite } from '../lib/notify';
 import { getDag } from '../dag/cache';
 import { connectionDegree } from './network';
+import { postWhere, viewerOf } from '../lib/visibility';
 import { exportFileName, exportUser } from '../lib/export';
 
 const dateish = z.coerce.date();
@@ -181,7 +182,7 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
 
   app.get<{ Params: { id: string } }>('/:id/activity', async (req) => {
     return prisma.post.findMany({
-      where: { authorId: req.params.id, isHidden: false, groupId: null },
+      where: { AND: [postWhere(await viewerOf(req)), { authorId: req.params.id, groupId: null }] },
       orderBy: { createdAt: 'desc' },
       take: 10,
       select: { id: true },

@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import type { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { REACTION_TYPES } from '@nexus/shared';
@@ -8,12 +8,31 @@ import { assertCan, authenticate, requirePerm, uid } from '../lib/auth';
 import { audit, notify, userLite } from '../lib/notify';
 import { extractHashtags, extractMentions, plain } from '../lib/text';
 import { canOverUser } from '../rbac';
-import { isOrgMember, orgOf, postsVisibleIn, visibleIn } from '../lib/org';
-import { connectionIds } from './network';
+import { assertNodesInOrg, isOrgMember, orgOf, visibleIn } from '../lib/org';
+import { env } from '../lib/env';
+import { assertSeePost, postWhere, viewerOf } from '../lib/visibility';
 
 const mediaItem = z.object({ url: z.string().url(), mimeType: z.string(), fileName: z.string().nullish() });
 
-const createBody = z.object({
+/** Who a new post is for (SOT §14.2). Omitted visibility: ORG in your active org, PUBLIC when you have none. */
+export const audienceBody = z.object({
+  visibility: z.enum(['PUBLIC', 'CONNECTIONS', 'ORG']).nullish(),
+  nodeIds: z.array(z.string()).max(20).default([]),
+});
+
+type Audience = { visibility: 'PUBLIC' | 'CONNECTIONS' | 'ORG'; orgId: string | null; nodeIds: string[] };
+
+/** Resolves the requested audience; single mode is always ORG (SOT §14.3), and units only narrow ORG posts. */
+export async function resolveAudience(req: FastifyRequest, a: z.infer<typeof audienceBody>): Promise<Audience> {
+  const visibility = env.tenancy === 'single' ? 'ORG' : a.visibility ?? (req.orgId ? 'ORG' : 'PUBLIC');
+  if (visibility !== 'ORG') return { visibility, orgId: null, nodeIds: [] };
+  const orgId = orgOf(req);
+  const nodeIds = [...new Set(a.nodeIds)];
+  await assertNodesInOrg(orgId, nodeIds);
+  return { visibility, orgId, nodeIds };
+}
+
+const createBody = audienceBody.extend({
   body: z.string().max(3000).default(''),
   media: z.array(mediaItem).max(9).default([]),
   poll: z
@@ -40,6 +59,8 @@ export function postInclude(viewerId: string) {
     event: { select: { id: true, title: true, startsAt: true, isOnline: true, location: true, coverUrl: true } },
     job: { select: { id: true, title: true, location: true, workplace: true, status: true } },
     group: { select: { id: true, name: true } },
+    org: { select: { id: true, name: true } },
+    audience: { select: { node: { select: { id: true, name: true } } } },
     repostOf: {
       include: {
         author: { select: userLite },
@@ -85,9 +106,9 @@ export async function serializePosts(rows: PostRow[]) {
   }));
 }
 
-async function loadPost(id: string, viewer: string, orgId: string | null) {
-  const post = await prisma.post.findFirst({ where: { id, ...postsVisibleIn(orgId) }, include: postInclude(viewer) });
-  if (!post || post.isHidden) throw notFound('Post');
+async function loadPost(req: FastifyRequest, id: string) {
+  const post = await prisma.post.findFirst({ where: { AND: [{ id }, postWhere(await viewerOf(req))] }, include: postInclude(uid(req)) });
+  if (!post) throw notFound('Post');
   return (await serializePosts([post]))[0];
 }
 
@@ -100,49 +121,62 @@ async function linkHashtags(postId: string, body: string) {
   }
 }
 
-async function notifyMentions(body: string, actorId: string, link: string, what: string) {
+async function notifyMentions(body: string, actorId: string, postId: string, what: string) {
   const ids = extractMentions(body);
   if (!ids.length) return;
   const actor = await prisma.user.findUniqueOrThrow({ where: { id: actorId }, select: { name: true } });
-  for (const id of ids) await notify({ recipientId: id, actorId, type: 'MENTION', text: `${actor.name} mentioned you in a ${what}`, link });
+  for (const id of ids) await notify({ recipientId: id, actorId, type: 'MENTION', text: `${actor.name} mentioned you in a ${what}`, link: `/post/${postId}`, postId });
 }
 
 export const postRoutes: FastifyPluginAsync = async (app) => {
   app.addHook('preHandler', authenticate);
 
   /**
-   * Home feed (SOT §5.3): pinned announcements first, then recent company posts,
-   * with posts from connections / follows / followed hashtags ranked higher inside each page window.
+   * Home feed (SOT §5.3, §14.3): pinned announcements first, then recent posts, with posts from
+   * connections / follows ranked higher inside each page window. Single mode shows every post you may see;
+   * multi mode narrows that to posts from connections and follows, public posts from people at followed
+   * companies, and posts of the active org (filtered by unit audience).
    */
   app.get<{ Querystring: { cursor?: string; limit?: string; filter?: string } }>('/feed', async (req) => {
     const me = uid(req);
+    const v = await viewerOf(req);
     const { limit, ...args } = pageArgs(req.query, 10);
-    const base: Prisma.PostWhereInput = { isHidden: false, groupId: null, ...postsVisibleIn(req.orgId) };
     const filter = req.query.filter;
-    let where: Prisma.PostWhereInput = base;
-    if (filter === 'network') {
-      const follows = await prisma.follow.findMany({ where: { followerId: me }, select: { followeeId: true } });
-      const ids = [...new Set([...(await connectionIds(me)), ...follows.map((f) => f.followeeId), me])];
-      where = { ...base, authorId: { in: ids } };
+    const [follows, companies] = await Promise.all([
+      prisma.follow.findMany({ where: { followerId: me }, select: { followeeId: true } }),
+      prisma.companyFollow.findMany({ where: { userId: me }, select: { orgId: true } }),
+    ]);
+    const network = [...new Set([...v.connections, ...follows.map((f) => f.followeeId), me])];
+    const base: Prisma.PostWhereInput[] = [postWhere(v), { groupId: null }];
+    if (filter === 'network') base.push({ authorId: { in: network } });
+    else if (env.tenancy === 'multi') {
+      base.push({
+        OR: [
+          // postWhere already limits these to what the viewer may see (CONNECTIONS only from connections)
+          { authorId: { in: network } },
+          { visibility: 'PUBLIC', author: { orgMemberships: { some: { status: 'ACTIVE', orgId: { in: companies.map((c) => c.orgId) } } } } },
+          { visibility: 'ORG' },
+        ],
+      });
     }
 
     const pinned = !req.query.cursor && filter !== 'network'
-      ? await prisma.post.findMany({ where: { ...base, isPinned: true }, orderBy: { createdAt: 'desc' }, include: postInclude(me), take: 3 })
+      ? await prisma.post.findMany({ where: { AND: [...base, { isPinned: true }] }, orderBy: { createdAt: 'desc' }, include: postInclude(me), take: 3 })
       : [];
     const rows = await prisma.post.findMany({
       ...args,
-      where: { ...where, isPinned: filter === 'network' ? undefined : false },
+      where: { AND: filter === 'network' ? base : [...base, { isPinned: false }] },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       include: postInclude(me),
     });
     const { items, nextCursor } = page(rows, limit);
 
     // Light ranking inside the page: network + engagement boost, decayed by age.
-    const network = new Set([...(await connectionIds(me)), me]);
+    const close = new Set([...v.connections, me]);
     const score = (p: PostRow) => {
       const ageH = (Date.now() - p.createdAt.getTime()) / 36e5;
       const engagement = p._count.reactions + 2 * p._count.comments + 3 * p._count.reposts;
-      return (network.has(p.authorId) ? 5 : 0) + Math.log1p(engagement) * 2 - ageH / 12;
+      return (close.has(p.authorId) ? 5 : 0) + Math.log1p(engagement) * 2 - ageH / 12;
     };
     const ranked = [...items].sort((a, b) => score(b) - score(a));
     return { items: await serializePosts([...pinned, ...ranked]), nextCursor };
@@ -152,20 +186,17 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
     const me = uid(req);
     const tag = req.params.tag.toLowerCase();
     const { limit, ...args } = pageArgs(req.query, 10);
-    const [rows, h] = await Promise.all([
-      prisma.post.findMany({
-        ...args,
-        where: { isHidden: false, hashtags: { some: { hashtag: { tag } } }, ...postsVisibleIn(req.orgId) },
-        orderBy: { createdAt: 'desc' },
-        include: postInclude(me),
-      }),
-      prisma.hashtag.findUnique({ where: { tag }, include: { _count: { select: { followers: true, posts: true } }, followers: { where: { userId: me } } } }),
+    const where: Prisma.PostWhereInput = { AND: [postWhere(await viewerOf(req)), { hashtags: { some: { hashtag: { tag } } } }] };
+    const [rows, h, postCount] = await Promise.all([
+      prisma.post.findMany({ ...args, where, orderBy: { createdAt: 'desc' }, include: postInclude(me) }),
+      prisma.hashtag.findUnique({ where: { tag }, include: { _count: { select: { followers: true } }, followers: { where: { userId: me } } } }),
+      prisma.post.count({ where }),
     ]);
     const { items, nextCursor } = page(rows, limit);
     return {
       tag,
       followers: h?._count.followers ?? 0,
-      postCount: h?._count.posts ?? 0,
+      postCount,
       following: !!h?.followers.length,
       items: await serializePosts(items),
       nextCursor,
@@ -182,13 +213,14 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
     return { following: !existing };
   });
 
-  app.get('/trending', async () => {
+  app.get('/trending', async (req) => {
     const since = new Date(Date.now() - 7 * 864e5);
+    const post: Prisma.PostWhereInput = { AND: [postWhere(await viewerOf(req)), { createdAt: { gte: since } }] };
     const tags = await prisma.hashtag.findMany({
       take: 8,
-      where: { posts: { some: { post: { createdAt: { gte: since } } } } },
+      where: { posts: { some: { post } } },
       orderBy: { posts: { _count: 'desc' } },
-      select: { tag: true, _count: { select: { posts: true } } },
+      select: { tag: true, _count: { select: { posts: { where: { post } } } } },
     });
     return tags.map((t) => ({ tag: t.tag, count: t._count.posts }));
   });
@@ -196,7 +228,7 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
   app.get('/saved', async (req) => {
     const me = uid(req);
     const saved = await prisma.savedPost.findMany({
-      where: { userId: me, post: { isHidden: false } },
+      where: { userId: me, post: postWhere(await viewerOf(req)) },
       orderBy: { createdAt: 'desc' },
       include: { post: { include: postInclude(me) } },
     });
@@ -208,7 +240,7 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
     const { limit, ...args } = pageArgs(req.query, 10);
     const rows = await prisma.post.findMany({
       ...args,
-      where: { authorId: req.params.userId, isHidden: false, groupId: null, ...postsVisibleIn(req.orgId) },
+      where: { AND: [postWhere(await viewerOf(req)), { authorId: req.params.userId, groupId: null }] },
       orderBy: { createdAt: 'desc' },
       include: postInclude(me),
     });
@@ -216,25 +248,41 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
     return { items: await serializePosts(items), nextCursor };
   });
 
-  app.get<{ Params: { id: string } }>('/:id', async (req) => loadPost(req.params.id, uid(req), req.orgId));
+  app.get<{ Params: { id: string } }>('/:id', async (req) => loadPost(req, req.params.id));
 
   app.post('/', { preHandler: requirePerm('post.create') }, async (req) => {
     const me = uid(req);
     const b = parse(createBody, req.body);
     if (!b.body.trim() && !b.media.length && !b.poll && !b.repostOfId && !b.celebration) throw badRequest('Post is empty');
+    let audience = await resolveAudience(req, b);
+    // Posts in a group / about an event or job are for that row's org (everyone when it has none).
+    let ownerOrg: string | null | undefined;
     if (b.groupId) {
-      const m = await prisma.groupMember.findFirst({ where: { groupId: b.groupId, userId: me, group: visibleIn(req.orgId) } });
+      const m = await prisma.groupMember.findFirst({ where: { groupId: b.groupId, userId: me, group: visibleIn(req.orgId) }, include: { group: { select: { orgId: true } } } });
       if (!m || m.role === 'PENDING') throw forbidden('Join the group to post');
+      ownerOrg = m.group.orgId;
     }
-    if (b.eventId && !(await prisma.event.count({ where: { id: b.eventId, ...visibleIn(req.orgId) } }))) throw notFound('Event');
-    if (b.jobId && !(await prisma.job.count({ where: { id: b.jobId, ...visibleIn(req.orgId) } }))) throw notFound('Job');
-    let repostOf: { id: string; authorId: string } | null = null;
+    if (b.eventId) {
+      const e = await prisma.event.findFirst({ where: { id: b.eventId, ...visibleIn(req.orgId) }, select: { orgId: true } });
+      if (!e) throw notFound('Event');
+      ownerOrg ??= e.orgId;
+    }
+    if (b.jobId) {
+      const j = await prisma.job.findFirst({ where: { id: b.jobId, ...visibleIn(req.orgId) }, select: { orgId: true } });
+      if (!j) throw notFound('Job');
+      ownerOrg ??= j.orgId;
+    }
+    if (ownerOrg !== undefined) audience = ownerOrg ? { visibility: 'ORG', orgId: ownerOrg, nodeIds: [] } : { visibility: 'PUBLIC', orgId: null, nodeIds: [] };
+    let repostOf: { id: string; authorId: string; visibility: Audience['visibility']; orgId: string | null } | null = null;
     if (b.repostOfId) {
-      repostOf = await prisma.post.findUnique({ where: { id: b.repostOfId }, select: { id: true, authorId: true, repostOfId: true } }).then((p) =>
-        // reposting a repost shares the original
-        p?.repostOfId ? prisma.post.findUnique({ where: { id: p.repostOfId }, select: { id: true, authorId: true } }) : p,
-      );
+      const v = await viewerOf(req);
+      const select = { id: true, authorId: true, repostOfId: true, visibility: true, orgId: true } as const;
+      const p = await prisma.post.findFirst({ where: { AND: [{ id: b.repostOfId }, postWhere(v)] }, select });
+      // reposting a repost shares the original
+      repostOf = p?.repostOfId ? await prisma.post.findFirst({ where: { AND: [{ id: p.repostOfId }, postWhere(v)] }, select }) : p;
       if (!repostOf) throw notFound('Original post');
+      // a repost can't widen the original's audience (it is also only shown where the original is)
+      if (repostOf.visibility !== 'PUBLIC') audience = { visibility: repostOf.visibility, orgId: repostOf.orgId, nodeIds: [] };
     }
     const kind = repostOf ? 'REPOST'
       : b.poll ? 'POLL'
@@ -248,6 +296,9 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
       data: {
         authorId: me,
         kind,
+        visibility: audience.visibility,
+        orgId: audience.orgId,
+        audience: { create: audience.nodeIds.map((nodeId) => ({ nodeId })) },
         body: b.body,
         celebration: b.celebration,
         repostOfId: repostOf?.id,
@@ -267,12 +318,12 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
       },
     });
     await linkHashtags(post.id, b.body);
-    await notifyMentions(b.body, me, `/post/${post.id}`, 'post');
+    await notifyMentions(b.body, me, post.id, 'post');
     if (repostOf) {
       const actor = await prisma.user.findUniqueOrThrow({ where: { id: me }, select: { name: true } });
-      await notify({ recipientId: repostOf.authorId, actorId: me, type: 'REPOST', text: `${actor.name} reposted your post`, link: `/post/${post.id}` });
+      await notify({ recipientId: repostOf.authorId, actorId: me, type: 'REPOST', text: `${actor.name} reposted your post`, link: `/post/${post.id}`, postId: post.id });
     }
-    return loadPost(post.id, me, req.orgId);
+    return loadPost(req, post.id);
   });
 
   app.patch<{ Params: { id: string } }>('/:id', async (req) => {
@@ -283,7 +334,7 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
     if (post.authorId !== me) throw forbidden('You can only edit your own posts');
     await prisma.post.update({ where: { id: post.id }, data: { body, editedAt: new Date() } });
     await linkHashtags(post.id, body);
-    return loadPost(post.id, me, req.orgId);
+    return loadPost(req, post.id);
   });
 
   app.delete<{ Params: { id: string } }>('/:id', async (req) => {
@@ -321,6 +372,7 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.post<{ Params: { id: string } }>('/:id/save', async (req) => {
+    await assertSeePost(req, req.params.id);
     const key = { userId: uid(req), postId: req.params.id };
     const existing = await prisma.savedPost.findUnique({ where: { userId_postId: key } });
     if (existing) await prisma.savedPost.delete({ where: { userId_postId: key } });
@@ -332,8 +384,8 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
   app.post<{ Params: { id: string } }>('/:id/react', async (req) => {
     const me = uid(req);
     const { type } = parse(z.object({ type: z.enum(REACTION_TYPES).nullable() }), req.body);
-    const post = await prisma.post.findUnique({ where: { id: req.params.id }, select: { id: true, authorId: true, body: true } });
-    if (!post) throw notFound('Post');
+    await assertSeePost(req, req.params.id);
+    const post = await prisma.post.findUniqueOrThrow({ where: { id: req.params.id }, select: { id: true, authorId: true, body: true } });
     const key = { userId_postId: { userId: me, postId: post.id } };
     if (!type) {
       await prisma.reaction.deleteMany({ where: { userId: me, postId: post.id } });
@@ -346,13 +398,15 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
           recipientId: post.authorId, actorId: me, type: 'REACTION',
           text: `${actor.name} reacted to your post${post.body ? `: "${plain(post.body, 40)}"` : ''}`,
           link: `/post/${post.id}`,
+          postId: post.id,
         });
       }
     }
-    return loadPost(post.id, me, req.orgId);
+    return loadPost(req, post.id);
   });
 
   app.get<{ Params: { id: string }; Querystring: { type?: string } }>('/:id/reactions', async (req) => {
+    await assertSeePost(req, req.params.id);
     return prisma.reaction.findMany({
       where: { postId: req.params.id, ...(req.query.type ? { type: req.query.type as (typeof REACTION_TYPES)[number] } : {}) },
       orderBy: { createdAt: 'desc' },
@@ -362,8 +416,9 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get<{ Params: { id: string } }>('/:id/reposts', async (req) => {
+    await assertSeePost(req, req.params.id);
     return prisma.post.findMany({
-      where: { repostOfId: req.params.id, isHidden: false },
+      where: { AND: [postWhere(await viewerOf(req)), { repostOfId: req.params.id }] },
       orderBy: { createdAt: 'desc' },
       take: 50,
       select: { id: true, body: true, createdAt: true, author: { select: userLite } },
@@ -374,6 +429,7 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
   app.post<{ Params: { id: string } }>('/:id/vote', async (req) => {
     const me = uid(req);
     const { optionId } = parse(z.object({ optionId: z.string() }), req.body);
+    await assertSeePost(req, req.params.id);
     const poll = await prisma.poll.findUnique({ where: { postId: req.params.id }, include: { options: true } });
     if (!poll) throw notFound('Poll');
     if (poll.endsAt < new Date()) throw badRequest('This poll has ended');
@@ -383,12 +439,13 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
       create: { pollId: poll.id, userId: me, optionId },
       update: { optionId },
     });
-    return loadPost(req.params.id, me, req.orgId);
+    return loadPost(req, req.params.id);
   });
 
   // ───────── Comments ─────────
   app.get<{ Params: { id: string } }>('/:id/comments', async (req) => {
     const me = uid(req);
+    await assertSeePost(req, req.params.id);
     const rows = await prisma.comment.findMany({
       where: { postId: req.params.id, parentId: null, isHidden: false },
       orderBy: { createdAt: 'asc' },
@@ -415,8 +472,8 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
     const me = uid(req);
     await assertCan(me, orgOf(req), 'comment.create');
     const b = parse(z.object({ body: z.string().trim().min(1).max(1250), parentId: z.string().nullish() }), req.body);
-    const post = await prisma.post.findUnique({ where: { id: req.params.id }, select: { id: true, authorId: true } });
-    if (!post) throw notFound('Post');
+    await assertSeePost(req, req.params.id);
+    const post = await prisma.post.findUniqueOrThrow({ where: { id: req.params.id }, select: { id: true, authorId: true } });
     let parentId = b.parentId ?? null;
     let parentAuthor: string | null = null;
     if (parentId) {
@@ -431,11 +488,11 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
       include: { author: { select: userLite } },
     });
     const actor = comment.author.name;
-    await notify({ recipientId: post.authorId, actorId: me, type: 'COMMENT', text: `${actor} commented: "${plain(b.body, 50)}"`, link: `/post/${post.id}` });
+    await notify({ recipientId: post.authorId, actorId: me, type: 'COMMENT', text: `${actor} commented: "${plain(b.body, 50)}"`, link: `/post/${post.id}`, postId: post.id });
     if (parentAuthor && parentAuthor !== post.authorId) {
-      await notify({ recipientId: parentAuthor, actorId: me, type: 'COMMENT', text: `${actor} replied to your comment`, link: `/post/${post.id}` });
+      await notify({ recipientId: parentAuthor, actorId: me, type: 'COMMENT', text: `${actor} replied to your comment`, link: `/post/${post.id}`, postId: post.id });
     }
-    await notifyMentions(b.body, me, `/post/${post.id}`, 'comment');
+    await notifyMentions(b.body, me, post.id, 'comment');
     return { ...comment, myReaction: null, reactionCount: 0, replies: [] };
   });
 
@@ -460,6 +517,9 @@ export const postRoutes: FastifyPluginAsync = async (app) => {
   app.post<{ Params: { id: string; commentId: string } }>('/:id/comments/:commentId/react', async (req) => {
     const me = uid(req);
     const { type } = parse(z.object({ type: z.enum(REACTION_TYPES).nullable() }), req.body);
+    const c = await prisma.comment.findUnique({ where: { id: req.params.commentId }, select: { postId: true } });
+    if (!c) throw notFound('Comment');
+    await assertSeePost(req, c.postId);
     const key = { userId_commentId: { userId: me, commentId: req.params.commentId } };
     if (!type) await prisma.reaction.deleteMany({ where: { userId: me, commentId: req.params.commentId } });
     else await prisma.reaction.upsert({ where: key, create: { userId: me, commentId: req.params.commentId, type }, update: { type } });

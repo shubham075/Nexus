@@ -6,13 +6,9 @@ import { authenticate, uid } from '../lib/auth';
 import { notify, userLite } from '../lib/notify';
 import { onlineUserIds } from '../lib/realtime';
 
-export async function connectionIds(userId: string): Promise<string[]> {
-  const rows = await prisma.connection.findMany({
-    where: { status: 'ACCEPTED', OR: [{ requesterId: userId }, { addresseeId: userId }] },
-    select: { requesterId: true, addresseeId: true },
-  });
-  return rows.map((r) => (r.requesterId === userId ? r.addresseeId : r.requesterId));
-}
+import { connectionIds } from '../lib/visibility';
+
+export { connectionIds };
 
 /** 1 = direct connection, 2 = shares a connection, 3 = everyone else. */
 export async function connectionDegree(a: string, b: string): Promise<number> {

@@ -5,6 +5,8 @@ import { forbidden, notFound, parse } from '../lib/http';
 import { authenticate, requirePerm, uid } from '../lib/auth';
 import { notify, userLite } from '../lib/notify';
 import { visibleIn } from '../lib/org';
+import { postWhere, viewerOf } from '../lib/visibility';
+import { audienceBody, resolveAudience } from './posts';
 
 const articleBody = z.object({
   title: z.string().trim().min(1).max(150),
@@ -18,7 +20,8 @@ export const articleRoutes: FastifyPluginAsync = async (app) => {
 
   app.get<{ Querystring: { authorId?: string } }>('/', async (req) =>
     prisma.article.findMany({
-      where: req.query.authorId ? { authorId: req.query.authorId } : {},
+      // an article is visible wherever its share post is (SOT §14.2)
+      where: { post: postWhere(await viewerOf(req)), ...(req.query.authorId ? { authorId: req.query.authorId } : {}) },
       orderBy: { publishedAt: 'desc' },
       take: 50,
       select: { id: true, title: true, coverUrl: true, publishedAt: true, author: { select: userLite }, newsletter: { select: { id: true, title: true } }, post: { select: { id: true } } },
@@ -26,8 +29,8 @@ export const articleRoutes: FastifyPluginAsync = async (app) => {
   );
 
   app.get<{ Params: { id: string } }>('/:id', async (req) => {
-    const a = await prisma.article.findUnique({
-      where: { id: req.params.id },
+    const a = await prisma.article.findFirst({
+      where: { id: req.params.id, post: postWhere(await viewerOf(req)) },
       include: { author: { select: userLite }, newsletter: { select: { id: true, title: true } }, post: { select: { id: true } } },
     });
     if (!a) throw notFound('Article');
@@ -37,17 +40,23 @@ export const articleRoutes: FastifyPluginAsync = async (app) => {
   /** Publishing creates the article plus a feed post that shares it, and notifies newsletter subscribers. */
   app.post('/', { preHandler: requirePerm('article.publish') }, async (req) => {
     const me = uid(req);
-    const b = parse(articleBody, req.body);
+    const { visibility, nodeIds, ...b } = parse(articleBody.merge(audienceBody), req.body);
+    const audience = await resolveAudience(req, { visibility, nodeIds });
     if (b.newsletterId) {
       const n = await prisma.newsletter.findUnique({ where: { id: b.newsletterId } });
       if (n?.ownerId !== me) throw forbidden('Not your newsletter');
     }
     const article = await prisma.article.create({ data: { ...b, authorId: me } });
-    await prisma.post.create({ data: { authorId: me, kind: 'ARTICLE', articleId: article.id, body: '' } });
+    const post = await prisma.post.create({
+      data: {
+        authorId: me, kind: 'ARTICLE', articleId: article.id, body: '',
+        visibility: audience.visibility, orgId: audience.orgId, audience: { create: audience.nodeIds.map((nodeId) => ({ nodeId })) },
+      },
+    });
     if (b.newsletterId) {
       const subs = await prisma.newsletterSubscription.findMany({ where: { newsletterId: b.newsletterId } });
       const me_ = await prisma.user.findUniqueOrThrow({ where: { id: me }, select: { name: true } });
-      for (const s of subs) await notify({ recipientId: s.userId, actorId: me, type: 'SYSTEM', text: `${me_.name} published “${article.title}”`, link: `/articles/${article.id}` });
+      for (const s of subs) await notify({ recipientId: s.userId, actorId: me, type: 'SYSTEM', text: `${me_.name} published “${article.title}”`, link: `/articles/${article.id}`, postId: post.id });
     }
     return article;
   });

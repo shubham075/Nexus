@@ -6,6 +6,7 @@ import { authenticate, requirePerm, uid } from '../lib/auth';
 import { audit, notify, userLite } from '../lib/notify';
 import { canOverUser } from '../rbac';
 import { orgOf } from '../lib/org';
+import { assertSeePost } from '../lib/visibility';
 
 const REASONS = ['SPAM', 'HARASSMENT', 'HATE', 'MISINFORMATION', 'CONFIDENTIAL', 'INAPPROPRIATE', 'OTHER'] as const;
 
@@ -25,6 +26,12 @@ export const reportRoutes: FastifyPluginAsync = async (app) => {
       req.body,
     );
     if (!b.postId && !b.commentId && !b.targetUserId) throw badRequest('Nothing to report');
+    if (b.postId) await assertSeePost(req, b.postId);
+    if (b.commentId) {
+      const c = await prisma.comment.findUnique({ where: { id: b.commentId }, select: { postId: true } });
+      if (!c) throw notFound('Comment');
+      await assertSeePost(req, c.postId);
+    }
     await prisma.report.create({ data: { ...b, orgId: orgOf(req), reporterId: uid(req) } });
     return { ok: true };
   });

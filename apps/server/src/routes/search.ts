@@ -5,7 +5,8 @@ import { authenticate, uid } from '../lib/auth';
 import { userLite } from '../lib/notify';
 import { hashtagTerm, inOrder, prefixQuery, searchPostIds, searchTableIds, searchUserIds } from '../lib/search';
 import { postInclude, serializePosts } from './posts';
-import { postsVisibleIn, visibleIn } from '../lib/org';
+import { visibleIn } from '../lib/org';
+import { postWhere, viewerOf } from '../lib/visibility';
 
 /** Global search (SOT §5.10): Postgres full-text (tsvector + ts_rank, prefix terms) for content; ILIKE for tags and units. */
 export const searchRoutes: FastifyPluginAsync = async (app) => {
@@ -33,9 +34,11 @@ export const searchRoutes: FastifyPluginAsync = async (app) => {
             })),
           )
         : [],
+      // Public posts match globally, private ones only where the viewer may see them (SOT §14.3): rank a
+      // wider candidate set, then keep the visible ones in rank order.
       wantFts('posts')
-        ? searchPostIds(fts!, hashtagTerm(q), take).then(async (ids) =>
-            serializePosts(inOrder(ids, await prisma.post.findMany({ where: { id: { in: ids }, ...postsVisibleIn(req.orgId) }, include: postInclude(me) }))),
+        ? searchPostIds(fts!, hashtagTerm(q), take * 5).then(async (ids) =>
+            serializePosts(inOrder(ids, await prisma.post.findMany({ where: { AND: [{ id: { in: ids } }, postWhere(await viewerOf(req))] }, include: postInclude(me) })).slice(0, take)),
           )
         : [],
       wantFts('groups')
