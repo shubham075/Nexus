@@ -37,13 +37,14 @@ jobs:
       - run: pnpm --filter @nexus/server exec prisma generate
 
       - run: pnpm typecheck
-      - run: pnpm test
-      - name: Build the web client (dist-web)
-        run: pnpm build:web
-
+      # Some unit tests (auth, search) use the database, so migrate first.
       - name: Migrate and seed a fresh database
         working-directory: apps/server
         run: npx prisma migrate deploy && pnpm db:seed
+
+      - run: pnpm test
+      - name: Build the web client (dist-web)
+        run: pnpm build:web
 
       - name: Start the API
         run: |
