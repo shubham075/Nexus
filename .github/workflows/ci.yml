@@ -33,6 +33,8 @@ jobs:
       - name: Start Postgres + S3 (same ports as local dev)
         run: docker compose up -d --wait postgres && docker compose up -d s3
       - run: cp apps/server/.env.example apps/server/.env
+      # Prisma's own postinstall may be skipped by pnpm, leaving @prisma/client without the schema's types.
+      - run: pnpm --filter @nexus/server exec prisma generate
 
       - run: pnpm typecheck
       - run: pnpm test
