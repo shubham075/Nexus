@@ -18,10 +18,10 @@ export const devRoutes: FastifyPluginAsync = async (app) => {
     return { domain, txt };
   });
 
-  /** Runs only the unverified-account purge, `days` days from now. */
+  /** Runs only the unverified-account purge, `days` days from now, limited to `emails` when given. */
   app.post('/purge-unverified', async (req) => {
-    const { days } = parse(z.object({ days: z.number().int().min(0).max(3650) }), req.body);
+    const { days, emails } = parse(z.object({ days: z.number().int().min(0).max(3650), emails: z.array(z.string().toLowerCase()).max(50).optional() }), req.body);
     const off = { ...env.retention, hiddenContentDays: 0, messageDays: 0, readNotificationDays: 0, notificationDays: 0, auditLogDays: 0 };
-    return purgeExpired(off, Date.now() + days * 86_400_000);
+    return purgeExpired(off, Date.now() + days * 86_400_000, undefined, emails);
   });
 };

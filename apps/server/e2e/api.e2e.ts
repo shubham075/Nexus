@@ -384,7 +384,9 @@ test('tenancy: admin users, permissions and exports stay inside the org', async 
 
 test('tenancy: audit log, reports and analytics are per org', async () => {
   const gAudit = await ok('GET', '/admin/audit', 'gina');
-  assert.ok(has(gAudit, 'globex.seed') && !has(gAudit, 'hierarchy.'), 'Globex audit has only Globex actions');
+  // every entry is by Globex people (the seed entry may have scrolled off the first page after many runs)
+  assert.ok(gAudit.items.length && gAudit.items.every((e: any) => [uid.gina, uid.sam, null].includes(e.actorId)), 'Globex audit has only Globex actions');
+  assert.ok(!has(gAudit, 'hierarchy.'));
   assert.ok(!has(await ok('GET', '/admin/audit?limit=50', 'admin'), 'globex.seed'));
 
   const gReports = await ok('GET', '/reports', 'gina');

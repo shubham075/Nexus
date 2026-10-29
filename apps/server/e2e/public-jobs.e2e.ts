@@ -48,7 +48,8 @@ async function fails(status: number, method: string, path: string, as: string | 
 async function mailedToken(to: string, route: string): Promise<string> {
   for (let i = 0; i < 40; i++) {
     const found = await fetch(`${MAILPIT}/search?query=${encodeURIComponent(`to:"${to}"`)}`).then((r) => r.json());
-    for (const m of found.messages ?? []) {
+    // Mailpit search is fuzzy: only take mail addressed to exactly this recipient
+    for (const m of (found.messages ?? []).filter((x: any) => x.To?.some((a: any) => a.Address?.toLowerCase() === to.toLowerCase()))) {
       const msg = await fetch(`${MAILPIT}/message/${m.ID}`).then((r) => r.json());
       const hit = new RegExp(`#/${route}\\?token=([\\w%-]+)`).exec(msg.Text ?? '');
       if (hit) return decodeURIComponent(hit[1]);
@@ -143,9 +144,10 @@ test('sign-up abuse: disposable domains, unverified purge, per-address limit', a
   assert.equal((await signup(stale)).status, 200);
   const users = async (q: string) => (await ok('GET', `/platform/users?q=${encodeURIComponent(q)}`, 'admin')).items;
   assert.equal((await users(stale)).length, 1);
-  await ok('POST', '/dev/purge-unverified', null, { days: 0 });
+  // only this test's address, so sign-ups of suites running in parallel are left alone
+  await ok('POST', '/dev/purge-unverified', null, { days: 0, emails: [stale] });
   assert.equal((await users(stale)).length, 1, 'a fresh sign-up is kept');
-  assert.ok((await ok('POST', '/dev/purge-unverified', null, { days: 30 })).unverifiedUsers >= 1);
+  assert.equal((await ok('POST', '/dev/purge-unverified', null, { days: 30, emails: [stale] })).unverifiedUsers, 1);
   assert.equal((await users(stale)).length, 0, 'an old unverified sign-up is purged');
   assert.equal((await users(ADMIN_EMAIL)).length, 1, 'verified accounts are kept');
 

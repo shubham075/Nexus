@@ -47,7 +47,8 @@ async function deleteUnreferencedFiles(keys: string[], log?: FastifyBaseLogger):
   return n;
 }
 
-export async function purgeExpired(policy: RetentionPolicy = env.retention, now = Date.now(), log?: FastifyBaseLogger): Promise<PurgeResult> {
+/** `onlyEmails` narrows the unverified-account purge (dev/e2e, so parallel suites don't purge each other's sign-ups). */
+export async function purgeExpired(policy: RetentionPolicy = env.retention, now = Date.now(), log?: FastifyBaseLogger, onlyEmails?: string[]): Promise<PurgeResult> {
   const r: PurgeResult = { at: new Date(now).toISOString(), hiddenPosts: 0, hiddenComments: 0, messages: 0, notifications: 0, auditLogs: 0, unverifiedUsers: 0, files: 0 };
   const files: string[] = [];
 
@@ -95,7 +96,7 @@ export async function purgeExpired(policy: RetentionPolicy = env.retention, now 
   if (unverified) {
     r.unverifiedUsers = (
       await prisma.user.deleteMany({
-        where: { emailVerifiedAt: null, createdAt: { lt: unverified }, isSuperAdmin: false, orgMemberships: { none: {} } },
+        where: { emailVerifiedAt: null, createdAt: { lt: unverified }, isSuperAdmin: false, orgMemberships: { none: {} }, ...(onlyEmails ? { email: { in: onlyEmails } } : {}) },
       })
     ).count;
   }

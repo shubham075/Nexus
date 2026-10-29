@@ -59,7 +59,8 @@ async function colleague(key: string, nodeId: string) {
 async function mailedToken(to: string, route: string): Promise<string> {
   for (let i = 0; i < 40; i++) {
     const found = await fetch(`${MAILPIT}/search?query=${encodeURIComponent(`to:"${to}"`)}`).then((r) => r.json());
-    for (const m of found.messages ?? []) {
+    // Mailpit search is fuzzy: only take mail addressed to exactly this recipient
+    for (const m of (found.messages ?? []).filter((x: any) => x.To?.some((a: any) => a.Address?.toLowerCase() === to.toLowerCase()))) {
       const msg = await fetch(`${MAILPIT}/message/${m.ID}`).then((r) => r.json());
       const hit = new RegExp(`#/${route}\\?token=([\\w%-]+)`).exec(msg.Text ?? '');
       if (hit) return decodeURIComponent(hit[1]);
