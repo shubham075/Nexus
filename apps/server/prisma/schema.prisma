@@ -150,6 +150,7 @@ model Organization {
   newsletters Newsletter[]
   followers   CompanyFollow[]
   invites     OrgInvite[]
+  posts       Post[]
 }
 
 model OrgMember {
@@ -252,6 +253,7 @@ model OrgNode {
   childEdges  OrgEdge[]    @relation("parent")
   memberships Membership[]
   grants      RoleGrant[]
+  postAudience PostAudienceNode[]
   jobs        Job[]
   groups      Group[]
   events      Event[]
@@ -419,6 +421,13 @@ enum PostKind {
   JOB
 }
 
+/// Who may see a post (SOT §14.2). ORG posts carry `orgId`; `PostAudienceNode` narrows them to units.
+enum PostVisibility {
+  PUBLIC
+  CONNECTIONS
+  ORG
+}
+
 enum ReactionType {
   LIKE
   CELEBRATE
@@ -432,6 +441,9 @@ model Post {
   id          String                   @id @default(cuid())
   authorId    String
   kind        PostKind                 @default(TEXT)
+  visibility  PostVisibility           @default(ORG)
+  /// Audience org of an ORG post; filled by a trigger from the group/event/job or the author's first org when omitted.
+  orgId       String?
   body        String                   @default("")
   celebration String?
   repostOfId  String?
@@ -459,6 +471,8 @@ model Post {
   savedBy     SavedPost[]
   hashtags    PostHashtag[]
   reports     Report[]
+  org         Organization?            @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  audience    PostAudienceNode[]
   search      Unsupported("tsvector")? @default(dbgenerated()) /// generated column + GIN index, see migration full_text_search
 
   @@index([search], type: Gin)
@@ -466,6 +480,18 @@ model Post {
   @@index([authorId, createdAt])
   @@index([groupId, createdAt])
   @@index([hiddenAt])
+  @@index([orgId, createdAt])
+}
+
+/// Units an ORG post targets; members of these units or any unit below them see it (SOT §14.2).
+model PostAudienceNode {
+  postId String
+  nodeId String
+  post   Post    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  node   OrgNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+
+  @@id([postId, nodeId])
+  @@index([nodeId])
 }
 
 model PostMedia {
