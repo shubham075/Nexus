@@ -309,21 +309,44 @@ Legend: ✅ done · 🟡 partly done · ⬜ not started
 ### Still to do before rolling out phase 1 (needs people or accounts, not code)
 - ⬜ **Code-signing certificate** (PFX or Azure Trusted Signing) → add as CI secrets `CSC_LINK` / `CSC_KEY_PASSWORD`
 - ⬜ **SSO tenant**: register the app in Entra ID / Google Workspace and test a live sign-in ([Single sign-on](#single-sign-on-oidc))
-- ⬜ **Product owner**: confirm retention defaults (SOT §1 P1) and data-export scope (P2); answer SOT §11 questions
+- ✅ **Product owner decisions** (2026-10-29): retention confirmed with messages expiring after 2 years (D17), managers see analytics for their own units (D18), no HRIS sync for now (D19)
 - ⬜ **End-to-end auto-update test**: install a CI-built v0.1.0, publish v0.1.1 to the feed, check the banner and restart
 - ⬜ **Production server**: provision the Docker host, DNS and TLS, then follow [`deploy/README.md`](deploy/README.md)
 - ✅ Packaged-build QA (unpacked `--dir` build, 2026-10-29): native notifications fire, taskbar overlay badge (fixed: Windows has no `setBadgeCount`), group chat UI, video upload + playback; also the multi-mode org switcher and the web client against a live API (SOT §12). Still to see by eye on an installed (NSIS) build: the toast and badge themselves, and clicking a toast
 - 🟡 Local installer builds can fail on locked-down laptops (endpoint security kills the NSIS step, SOT §13); use the CI artifact
 
-### Phase 2: public release 🟡 (2a, 2b, 2c done; spec: SOT §14, decisions D20–D23)
+### Phase 2: public release 🟡 (2a, 2b, 2c done, 2d in progress; spec: SOT §14, decisions D20–D23)
 - ✅ **2a: tenancy core** (2026-10-29): Organization / OrgMember / OrgDomain, `orgId` on company tables (migration moves existing data into the first org), org-scoped RBAC and DAG caches, active org per request (`X-Org-Id`, `apps/server/src/lib/org.ts`), `TENANCY=single|multi` (default `single`), org switcher in multi mode. 23/23 e2e incl. 6 cross-org tests; seed adds a test-only org `globex`. Posts, articles and people stay global until 2c (SOT §12)
 - ✅ **2b: accounts & companies** (2026-10-29): email service (`lib/mailer.ts` + `lib/emailTemplates.ts`, Mailpit dev inbox); public sign-up + email verification (multi only), password reset by email (both modes, revokes sessions); company creation (root unit + system roles, creator = org admin), domain verification by DNS TXT (`lib/domains.ts`, `DNS_STUB=true` in dev/e2e), join policies AUTO / APPROVAL / INVITE, email invites, company pages + follow, platform admin console (suspend orgs/users). Desktop: sign-up, verify, forgot/reset, companies, company page + settings, platform admin. e2e: `e2e/accounts.e2e.ts`; full suite multi 27 pass + 1 skipped, single 25 pass + 3 skipped
 - ✅ **2c: visibility & feed** (2026-10-30): `Post.visibility` PUBLIC / CONNECTIONS / ORG + `Post.orgId` + `PostAudienceNode` (units, inherited down the DAG); migration makes existing posts ORG in their author's org. One helper, `apps/server/src/lib/visibility.ts`, decides every post read (feed, post, comments, reactions, reposts, polls, saves, articles, hashtags, trending, search, profile activity, reports, notifications, media URLs); reposts can't widen the original's audience. Multi-mode feed per SOT §14.3; people without a company can post and comment publicly. Composer audience picker (multi only), audience label on post cards. e2e `e2e/visibility.e2e.ts`; after merging public jobs the full suite passes twice in a row: multi 36 + 2 skipped, single 33 + 5 skipped (start the API with `SIGNUP_LIMIT_PER_IP=0 EMAIL_LINK_LIMIT_PER_IP=0 REDEEM_LIMIT_PER_MINUTE=0` for repeated e2e runs, SOT §12)
-- ⬜ **2d: public surface**: public jobs on company pages, public groups/events, web client deployment, abuse controls
-  - ✅ Public jobs on company pages + sign-up abuse limits (rate limits, disposable domains, unverified purge); branch `claude/public-jobs-cca362`, see SOT §12
-  - ✅ web client groundwork: `pnpm build:web`, runtime `config.json`, browser bridge, `deploy/web` image + `app.<domain>` in the prod compose, CI build ([Web client](#web-client))
-  - ⬜ web SSO redirect flow, CORS allow-list, cookie-based refresh tokens
-- ⬜ **2e: later**: recommendations, premium, macOS/Linux builds, mobile clients
+- 🟡 **2d: public surface**
+  - ✅ Public jobs on company pages + sign-up abuse limits (rate limits, disposable domains, unverified purge); merged into master 2026-10-30, see SOT §12
+  - ✅ Web client groundwork: `pnpm build:web`, runtime `config.json`, browser bridge, `deploy/web` image + `app.<domain>` in the prod compose, CI build ([Web client](#web-client))
+  - ⬜ **Public groups and events** (~1–1.5 h, ~3–5M tokens): groups/events not tied to one company, discovery pages, company-page section; posting rules via `lib/visibility.ts`
+  - ⬜ **Block and report users** (~1–1.5 h, ~3–5M tokens): blocking hides a person from feed, comments, messages, search, notifications and connection requests; user reports, with public-area reports going to the platform admin
+  - ⬜ **Web client deployment** (~0.5–1 h, ~1–2M tokens): wire `app.<domain>` / `api.<domain>`, CORS allow-list, cookie-based refresh tokens, web SSO redirect flow, deploy test. A real deployment needs your server, domain and TLS
+  - The first two items can run in parallel (separate files and databases); deployment comes last
+
+### Release bundle ⬜ (after 2d, ~0.5–1 h, ~1–2M tokens)
+One command that builds a versioned bundle: the Windows installer, a ready-to-run server folder (`deploy/` prod compose, env templates, Caddy, backups, web image) and a short install guide.
+
+**Estimate for 2d + release bundle:** about 2.5–4 hours of session time and ~8–14M tokens (rough, based on earlier phases; usage limits can pause the work).
+
+### Phase 2e: later features ⬜ (optional, each is large)
+- ⬜ Recommendations: smarter feed ranking, people-you-may-know, job matching (~2–4 h each)
+- ⬜ Premium / billing: plans, payments, invoices (~4–6 h, plus a payment-provider account and Indian GST/legal setup)
+- ⬜ macOS / Linux builds: mostly packaging and signing (~1–2 h each; macOS needs an Apple developer account)
+- ⬜ Mobile apps: React Native client reusing the API (multi-day project)
+
+### Before real users (people / accounts, not code)
+- ⬜ Code-signing certificate, live SSO tenant, production server + domain + TLS, live auto-update test (see "Still to do before rolling out phase 1")
+- ⬜ Legal for a public launch: privacy policy, terms of service, compliance with India's data-protection law (DPDP Act)
+
+### Recommended quality checks before launch
+- ⬜ One `/code-review ultra` run (user-started, billed) and a security review: access control changed a lot in 2a–2c
+- ⬜ Load test (e.g. 500–5,000 concurrent users), accessibility check, monitoring and alerts
+
+**Recommended order:** the two parallel 2d items → web deployment → release bundle → code review / security review → 2e only when launching publicly.
 
 Phase-1 product decisions are settled (D17–D19, 2026-10-29): messages expire after 2 years; managers see analytics for their own units; no HRIS sync for now.
 
