@@ -284,7 +284,8 @@ The renderer also runs in a normal browser at http://localhost:5183 (web bridge 
 | 1c ✅ built | Realtime/upload QA, API e2e + UI tests, CI, OIDC SSO (Azure AD / Google), refresh tokens, rate limiting, password policy, full-text search, Redis, auto-update + signing readiness, production deployment, signed media URLs, retention purge, data export. Open: code-signing certificate, live SSO round trip, retention defaults (P1) |
 | 2a ✅ built | Tenancy core (§14.4): organizations, `orgId` on company tables + backfill migration, per-org RBAC/DAG caches, request org context, `TENANCY` flag, org switcher (multi only) |
 | 2b ✅ built | Public sign-up + email verification, password reset by email, company creation, DNS TXT domain verification, join policies + invites, company pages + follow, platform admin console (§14.4) |
-| 2c–2e (public) | Post visibility levels (public/connections/nodes), public surface, premium, recommendations ML, web + mobile clients (§14.4) |
+| 2c ✅ built | Post visibility (public / connections / org / units), visibility-aware feed, search, notifications and media (§14.4) |
+| 2d–2e (public) | Public surface, premium, recommendations ML, web + mobile clients (§14.4) |
 
 ---
 
@@ -297,6 +298,15 @@ The renderer also runs in a normal browser at http://localhost:5183 (web bridge 
 ---
 
 ## 12. QA log
+
+### 2026-10-30 — phase 2c: visibility & feed
+Built per §14.2/§14.3 and verified on the dev stack in **both** modes (`pnpm typecheck`, `pnpm test` 46/46, `pnpm test:e2e`: multi 34 pass + 1 skipped, single 32 pass + 3 skipped):
+1. Migration `20261030090000_post_visibility`: `PostVisibility` enum (default ORG), `Post.orgId`, `PostAudienceNode`; existing posts → ORG in their group/event/job org, else the author's first active org (dev DB: 67 posts). An insert trigger fills `orgId` for ORG posts created without one (event/job/article share posts).
+2. Rules (`lib/visibility.ts`): author always; PUBLIC everyone signed in; CONNECTIONS accepted connections; ORG members of `orgId` while it is their active org, narrowed by audience units (a unit's members and every unit below it). Group/event/job posts also need that row visible; a repost is visible only where its original is, and reposting a non-public post copies the original's audience. Unseen posts → 404. Single mode always stores ORG.
+3. Feed (multi): your own and your network's posts, PUBLIC posts by members of followed companies, ORG posts of the active org; single mode keeps the old feed. Search ranks 5× candidates and keeps the visible ones; hashtag counts and trending only count visible posts. Notifications about a post are skipped for recipients who can't see it.
+4. `e2e/visibility.e2e.ts`: author / connection / same unit (below the target) / other unit / other org / stranger (multi) × PUBLIC / CONNECTIONS / ORG / units across post, comments, reactions, reposts, save, hashtag, search, profile, feed, mention notifications and signed media.
+
+Known limits: articles have no audience picker in the UI (API accepts `visibility`/`nodeIds`); company pages don't list posts yet; post audience can't be edited after posting.
 
 ### 2026-10-29 — phase 2b: accounts & companies
 Built per §14 (D22) and verified on the dev stack in **both** modes (`pnpm typecheck`, `pnpm test` 46/46, `pnpm test:e2e`: multi 27 pass + 1 skipped, single 25 pass + 3 skipped, rate limits on):
@@ -484,7 +494,7 @@ pnpm build:win:azure  # same, signed with Azure Trusted Signing (electron-builde
 |-----------|-------|-----------|
 | **2a: tenancy core** ✅ | Organization/OrgMember/OrgDomain models; `orgId` on company tables + migration moving existing data into one org; org-scoped RBAC + DAG caches; request org context; `TENANCY` flag; org switcher in the UI (multi only) | All existing tests pass in single mode; new tests prove no cross-org reads/writes |
 | **2b: accounts & companies** ✅ | Public sign-up, email verification, password reset by email (SMTP), company creation, domain verification, join policies, company pages + follow, platform admin console | A new user can sign up, verify, create/claim a company, invite colleagues |
-| **2c: visibility & feed** | Post visibility (public/connections/org/units), visibility-aware feed, search, notifications and media access | Visibility matrix tests pass |
+| **2c: visibility & feed** ✅ | Post visibility (public/connections/org/units), visibility-aware feed, search, notifications and media access | Visibility matrix tests pass |
 | **2d: public surface** | Public jobs on company pages, public groups/events, web client deployment (renderer in browser), basic abuse controls (sign-up rate limits, report users, block) | Web client deployed alongside desktop |
 | **2e: later** | Recommendations, premium, macOS/Linux builds, mobile clients | — |
 

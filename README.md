@@ -315,10 +315,10 @@ Legend: ✅ done · 🟡 partly done · ⬜ not started
 - ✅ Packaged-build QA (unpacked `--dir` build, 2026-10-29): native notifications fire, taskbar overlay badge (fixed: Windows has no `setBadgeCount`), group chat UI, video upload + playback; also the multi-mode org switcher and the web client against a live API (SOT §12). Still to see by eye on an installed (NSIS) build: the toast and badge themselves, and clicking a toast
 - 🟡 Local installer builds can fail on locked-down laptops (endpoint security kills the NSIS step, SOT §13); use the CI artifact
 
-### Phase 2: public release 🟡 (2a, 2b done; spec: SOT §14, decisions D20–D23)
+### Phase 2: public release 🟡 (2a, 2b, 2c done; spec: SOT §14, decisions D20–D23)
 - ✅ **2a: tenancy core** (2026-10-29): Organization / OrgMember / OrgDomain, `orgId` on company tables (migration moves existing data into the first org), org-scoped RBAC and DAG caches, active org per request (`X-Org-Id`, `apps/server/src/lib/org.ts`), `TENANCY=single|multi` (default `single`), org switcher in multi mode. 23/23 e2e incl. 6 cross-org tests; seed adds a test-only org `globex`. Posts, articles and people stay global until 2c (SOT §12)
 - ✅ **2b: accounts & companies** (2026-10-29): email service (`lib/mailer.ts` + `lib/emailTemplates.ts`, Mailpit dev inbox); public sign-up + email verification (multi only), password reset by email (both modes, revokes sessions); company creation (root unit + system roles, creator = org admin), domain verification by DNS TXT (`lib/domains.ts`, `DNS_STUB=true` in dev/e2e), join policies AUTO / APPROVAL / INVITE, email invites, company pages + follow, platform admin console (suspend orgs/users). Desktop: sign-up, verify, forgot/reset, companies, company page + settings, platform admin. e2e: `e2e/accounts.e2e.ts`; full suite multi 27 pass + 1 skipped, single 25 pass + 3 skipped
-- ⬜ **2c: visibility & feed**: post visibility (public / connections / company / units), visibility-aware feed, search, notifications and media
+- ✅ **2c: visibility & feed** (2026-10-30): `Post.visibility` PUBLIC / CONNECTIONS / ORG + `Post.orgId` + `PostAudienceNode` (units, inherited down the DAG); migration makes existing posts ORG in their author's org. One helper, `apps/server/src/lib/visibility.ts`, decides every post read (feed, post, comments, reactions, reposts, polls, saves, articles, hashtags, trending, search, profile activity, reports, notifications, media URLs); reposts can't widen the original's audience. Multi-mode feed per SOT §14.3; people without a company can post and comment publicly. Composer audience picker (multi only), audience label on post cards. e2e `e2e/visibility.e2e.ts`; full suite multi 34 pass + 1 skipped, single 32 pass + 3 skipped
 - ⬜ **2d: public surface**: public jobs on company pages, public groups/events, web client deployment, abuse controls
   - ✅ web client groundwork: `pnpm build:web`, runtime `config.json`, browser bridge, `deploy/web` image + `app.<domain>` in the prod compose, CI build ([Web client](#web-client))
   - ⬜ web SSO redirect flow, CORS allow-list, cookie-based refresh tokens
@@ -339,7 +339,7 @@ This repo is set up so that a **new Claude Code session** (desktop app / GUI, CL
 3. Start with a prompt such as:
    > Read SOURCE_OF_TRUTH.md and the "Project status" section of README.md, then start phase 2: *(pick an item)*.
 
-   Phases 2a (tenancy core) and 2b (accounts & companies) are done; continue with 2c (visibility & feed).
+   Phases 2a (tenancy core), 2b (accounts & companies) and 2c (visibility & feed) are done; continue with 2d (public surface).
 4. When a phase item is finished, tick it in this README **and** update `SOURCE_OF_TRUTH.md` (roadmap §10, QA log §12), so the next device or session sees the true status.
 
 Claude's memory on one device doesn't move to another device, so these two files are the hand-over.
