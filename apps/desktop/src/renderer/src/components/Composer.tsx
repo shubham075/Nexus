@@ -8,6 +8,7 @@ import { useAuth, useCan } from '@/lib/auth';
 import { Avatar, ErrorText, Modal } from './ui';
 import { MentionInput } from './MentionInput';
 import { PostEmbed } from './PostCard';
+import { NodeMultiSelect } from './NodeSelect';
 
 const CELEBRATIONS = [
   { value: 'KUDOS', label: 'Give kudos', emoji: '🏆' },
@@ -60,6 +61,10 @@ export function ComposerModal({ initialMode = 'text', groupId, repostOf, onClose
   const [poll, setPoll] = useState({ question: '', options: ['', ''], durationDays: 7 });
   const [celebration, setCelebration] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
+  // Audience (SOT §14.2): multi mode only; single mode is always the company. Groups and reposts decide their own.
+  const showAudience = me.tenancy === 'multi' && !groupId && !repostOf;
+  const [visibility, setVisibility] = useState<'PUBLIC' | 'CONNECTIONS' | 'ORG'>(me.activeOrgId ? 'ORG' : 'PUBLIC');
+  const [units, setUnits] = useState<string[] | null>(null);
 
   const submit = useMutation({
     mutationFn: () =>
@@ -68,6 +73,7 @@ export function ComposerModal({ initialMode = 'text', groupId, repostOf, onClose
         media,
         groupId,
         repostOfId: repostOf?.id,
+        ...(showAudience ? { visibility, nodeIds: visibility === 'ORG' ? units ?? [] : [] } : {}),
         poll: mode === 'poll' ? { ...poll, options: poll.options.filter((o) => o.trim()) } : null,
         celebration: mode === 'celebrate' ? celebration : null,
       }),
@@ -99,7 +105,8 @@ export function ComposerModal({ initialMode = 'text', groupId, repostOf, onClose
     !submit.isPending && !uploading &&
     (mode === 'poll' ? poll.question.trim() && poll.options.filter((o) => o.trim()).length >= 2
       : mode === 'celebrate' ? !!celebration
-      : body.trim() || media.length || repostOf);
+      : body.trim() || media.length || repostOf) &&
+    !(units && !units.length);
 
   return (
     <Modal
@@ -110,7 +117,25 @@ export function ComposerModal({ initialMode = 'text', groupId, repostOf, onClose
           <Avatar user={me} size={40} />
           <div>
             <div>{me.name}</div>
-            <div className="text-xs font-normal text-zinc-500">{groupId ? 'Post to group' : repostOf ? 'Repost with your thoughts' : 'Post to everyone at the company'}</div>
+            {showAudience ? (
+              <select
+                aria-label="Audience"
+                className="mt-0.5 rounded-full border border-zinc-300 bg-surface px-2 py-0.5 text-xs font-normal text-zinc-600"
+                value={visibility === 'ORG' && units ? 'UNITS' : visibility}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setVisibility(v === 'UNITS' ? 'ORG' : (v as typeof visibility));
+                  setUnits(v === 'UNITS' ? [] : null);
+                }}
+              >
+                <option value="PUBLIC">Anyone</option>
+                <option value="CONNECTIONS">Connections only</option>
+                {me.activeOrgId && <option value="ORG">Everyone at {me.orgs.find((o) => o.id === me.activeOrgId)?.name ?? 'the company'}</option>}
+                {me.activeOrgId && <option value="UNITS">Selected units</option>}
+              </select>
+            ) : (
+              <div className="text-xs font-normal text-zinc-500">{groupId ? 'Post to group' : repostOf ? 'Repost with your thoughts' : 'Post to everyone at the company'}</div>
+            )}
           </div>
         </div>
       }
@@ -198,6 +223,12 @@ export function ComposerModal({ initialMode = 'text', groupId, repostOf, onClose
         </div>
       )}
 
+      {showAudience && units && (
+        <div className="mt-3">
+          <label className="label">Visible to members of these units and the units below them</label>
+          <NodeMultiSelect value={units} onChange={setUnits} />
+        </div>
+      )}
       {repostOf && <div className="mt-3"><PostEmbed post={repostOf} /></div>}
       <div className="mt-3"><ErrorText error={error} /></div>
     </Modal>

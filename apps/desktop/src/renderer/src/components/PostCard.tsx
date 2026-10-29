@@ -13,6 +13,15 @@ import { MentionInput } from './MentionInput';
 
 export type Post = any;
 
+/** Who can see a post (SOT §14.2), shown next to its timestamp. */
+export function audienceLabel(post: Post): string {
+  if (post.group) return 'Group';
+  if (post.visibility === 'PUBLIC') return 'Anyone';
+  if (post.visibility === 'CONNECTIONS') return 'Connections';
+  if (post.audience?.length) return post.audience.map((a: { node: { name: string } }) => a.node.name).join(', ');
+  return post.org?.name ?? 'Company';
+}
+
 /** Patch a post everywhere it is cached (feed pages, hashtag pages, group feeds, single post). */
 export function usePostCache() {
   const qc = useQueryClient();
@@ -259,7 +268,7 @@ export function PostCard({ post, defaultShowComments = false }: { post: Post; de
         <div className="px-4 pt-3">
           <UserLine
             user={post.author}
-            sub={<span title={dateLong(post.createdAt)}><Link to={`/post/${post.id}`} className="hover:underline">{ago(post.createdAt)}</Link>{post.editedAt && ' · Edited'} · {post.group ? 'Group' : 'Company'}</span>}
+            sub={<span title={dateLong(post.createdAt)}><Link to={`/post/${post.id}`} className="hover:underline">{ago(post.createdAt)}</Link>{post.editedAt && ' · Edited'} · <span data-testid="audience">{audienceLabel(post)}</span></span>}
             right={
               <Menu trigger={<button className="rounded-full p-1.5 hover:bg-zinc-100"><MoreHorizontal size={20} /></button>}>
                 <MenuItem icon={<Bookmark size={16} />} onClick={() => save.mutate()}>{post.saved ? 'Unsave' : 'Save'}</MenuItem>
