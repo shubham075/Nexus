@@ -1,10 +1,11 @@
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Globe, Settings } from 'lucide-react';
+import { Briefcase, Check, Globe, Settings } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { ErrorText, Spinner } from '@/components/ui';
 import { CompanyLogo } from './Companies';
+import { jobPlace, label } from './Jobs';
 
 /** Company page (SOT D20): about, follow, join by verified domain or request approval. */
 
@@ -97,6 +98,31 @@ export default function CompanyPage() {
         <h2 className="text-lg font-semibold">About</h2>
         <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">{c.about || 'No description yet.'}</p>
       </section>
+
+      <CompanyJobs orgId={c.id} />
     </div>
+  );
+}
+
+/** Public jobs (2d): anyone signed in can see and apply. */
+function CompanyJobs({ orgId }: { orgId: string }) {
+  const { data } = useQuery({ queryKey: ['jobs', 'company', orgId], queryFn: () => api.get<any[]>(`/jobs?public=true&orgId=${orgId}`) });
+  if (!data?.length) return null;
+  return (
+    <section className="card p-6">
+      <h2 className="text-lg font-semibold">Open jobs</h2>
+      <div className="mt-2 divide-y divide-zinc-100">
+        {data.map((j) => (
+          <Link key={j.id} to={`/jobs/${j.id}`} className="flex items-center gap-3 py-3 hover:bg-zinc-50">
+            <Briefcase size={18} className="text-zinc-500" />
+            <div className="flex-1">
+              <div className="font-semibold text-brand-500">{j.title}</div>
+              <div className="muted">{jobPlace(j)} · {j.location ? `${j.location} · ` : ''}{label(j.workplace)}</div>
+            </div>
+            {j.myApplication && <span className="chip">{label(j.myApplication)}</span>}
+          </Link>
+        ))}
+      </div>
+    </section>
   );
 }

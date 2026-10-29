@@ -6,7 +6,8 @@ import { passwordProblem } from '@nexus/shared';
 import { prisma } from '../lib/db';
 import { HttpError, badRequest, notFound, parse } from '../lib/http';
 import { authenticate, uid } from '../lib/auth';
-import { limits } from '../lib/rateLimit';
+import { email as emailOf, keyedLimit, limits } from '../lib/rateLimit';
+import { isDisposableEmail } from '../lib/abuse';
 import { createSession, newSecret, revokeSessions, revokeUserSessions, rotateSession, sha256 } from '../lib/sessions';
 import { callbackUrl, emailFromClaims, isLoopbackRedirect, oidcClient, providers } from '../lib/sso';
 import { permissionsOf } from '../rbac';
@@ -18,6 +19,11 @@ import { resetPasswordTemplate, verifyEmailTemplate, type RenderedMail } from '.
 
 const SSO_START_TTL = 10 * 60_000;
 const SSO_CODE_TTL = 2 * 60_000;
+const HOUR = 3_600_000;
+
+// Second limits next to the per-route ones (2d abuse controls): per address for sign-up, per IP for mail links.
+const signupPerEmail = keyedLimit(env.abuse.signupsPerEmail, HOUR, (req) => emailOf(req));
+const emailLinkPerIp = keyedLimit(env.abuse.emailLinksPerIp, HOUR, (req) => req.ip);
 
 const emailBody = z.object({ email: z.string().trim().email().max(254).transform((e) => e.toLowerCase()) });
 const tokenBody = z.object({ token: z.string().min(1).max(500).transform(tokenFrom) });
@@ -54,12 +60,13 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   app.get('/config', async () => ({ tenancy: env.tenancy, signup: env.tenancy === 'multi' }));
 
   // ───────── Public sign-up + email verification (SOT D22, multi mode only) ─────────
-  app.post('/signup', { config: { rateLimit: limits.signup } }, async (req) => {
+  app.post('/signup', { config: { rateLimit: limits.signup }, preHandler: signupPerEmail }, async (req) => {
     if (env.tenancy !== 'multi') throw new HttpError(403, 'SIGNUP_DISABLED', 'Sign-up is not available. Ask your administrator for an account.');
     const body = parse(
       emailBody.extend({ name: z.string().trim().min(1).max(120), password: z.string().max(200) }),
       req.body,
     );
+    if (isDisposableEmail(body.email)) throw new HttpError(400, 'DISPOSABLE_EMAIL', 'Use a permanent email address to sign up.');
     const problem = passwordProblem(body.password);
     if (problem) throw new HttpError(400, 'WEAK_PASSWORD', problem);
     const existing = await prisma.user.findUnique({ where: { email: body.email } });
@@ -75,7 +82,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     return { ok: true };
   });
 
-  app.post('/resend-verification', { config: { rateLimit: limits.emailLink } }, async (req) => {
+  app.post('/resend-verification', { config: { rateLimit: limits.emailLink }, preHandler: emailLinkPerIp }, async (req) => {
     const { email } = parse(emailBody, req.body);
     const user = await prisma.user.findUnique({ where: { email } });
     if (user && !user.emailVerifiedAt && user.isActive) await sendVerification(req.log, user);
@@ -92,7 +99,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   });
 
   // ───────── Password reset by email (both modes) ─────────
-  app.post('/forgot-password', { config: { rateLimit: limits.emailLink } }, async (req) => {
+  app.post('/forgot-password', { config: { rateLimit: limits.emailLink }, preHandler: emailLinkPerIp }, async (req) => {
     const { email } = parse(emailBody, req.body);
     const user = await prisma.user.findUnique({ where: { email } });
     if (user?.isActive) {

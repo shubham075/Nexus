@@ -38,6 +38,8 @@ export const env = {
     readNotificationDays: int('RETENTION_READ_NOTIFICATION_DAYS', 90),
     notificationDays: int('RETENTION_NOTIFICATION_DAYS', 365),
     auditLogDays: int('RETENTION_AUDIT_LOG_DAYS', 0),
+    /** Sign-ups never verified are deleted after this many days (2d abuse control); 0 keeps them. */
+    unverifiedAccountDays: int('RETENTION_UNVERIFIED_ACCOUNT_DAYS', 7),
     /** How often the purge job runs (hours); 0 disables it. */
     purgeEveryHours: int('RETENTION_PURGE_EVERY_HOURS', 24),
   },
@@ -48,6 +50,12 @@ export const env = {
   accessTokenTtl: req('ACCESS_TOKEN_TTL', '15m'),
   refreshTokenTtlDays: Number(process.env.REFRESH_TOKEN_TTL_DAYS ?? 30),
   rateLimit: process.env.RATE_LIMIT !== 'off',
+  /** Sign-up abuse controls (SOT §14.4, 2d). Limits are per hour; 0 = no extra limit. */
+  abuse: {
+    signupsPerIp: int('SIGNUP_LIMIT_PER_IP', 10),
+    signupsPerEmail: int('SIGNUP_LIMIT_PER_EMAIL', 3),
+    emailLinksPerIp: int('EMAIL_LINK_LIMIT_PER_IP', 20),
+  },
   /** Fastify `trustProxy`: "true", a hop count, or a comma-separated list of proxy IPs/CIDRs. */
   trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
   s3: {

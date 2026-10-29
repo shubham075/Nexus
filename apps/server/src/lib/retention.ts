@@ -14,6 +14,7 @@ export interface PurgeResult {
   messages: number;
   notifications: number;
   auditLogs: number;
+  unverifiedUsers: number;
   files: number;
 }
 
@@ -47,7 +48,7 @@ async function deleteUnreferencedFiles(keys: string[], log?: FastifyBaseLogger):
 }
 
 export async function purgeExpired(policy: RetentionPolicy = env.retention, now = Date.now(), log?: FastifyBaseLogger): Promise<PurgeResult> {
-  const r: PurgeResult = { at: new Date(now).toISOString(), hiddenPosts: 0, hiddenComments: 0, messages: 0, notifications: 0, auditLogs: 0, files: 0 };
+  const r: PurgeResult = { at: new Date(now).toISOString(), hiddenPosts: 0, hiddenComments: 0, messages: 0, notifications: 0, auditLogs: 0, unverifiedUsers: 0, files: 0 };
   const files: string[] = [];
 
   const hidden = cutoff(policy.hiddenContentDays, now);
@@ -87,6 +88,17 @@ export async function purgeExpired(policy: RetentionPolicy = env.retention, now 
 
   const audit = cutoff(policy.auditLogDays, now);
   if (audit) r.auditLogs = (await prisma.auditLog.deleteMany({ where: { createdAt: { lt: audit } } })).count;
+
+  // Sign-ups never verified (2d): they could not sign in, so they own no content. Skip anyone already
+  // placed in a company or made an admin, in case an account was set up by hand.
+  const unverified = cutoff(policy.unverifiedAccountDays, now);
+  if (unverified) {
+    r.unverifiedUsers = (
+      await prisma.user.deleteMany({
+        where: { emailVerifiedAt: null, createdAt: { lt: unverified }, isSuperAdmin: false, orgMemberships: { none: {} } },
+      })
+    ).count;
+  }
 
   r.files = await deleteUnreferencedFiles(files.filter(Boolean), log);
   return r;
